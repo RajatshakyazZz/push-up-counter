@@ -10,11 +10,17 @@ import {
   Loader2,
   Smartphone,
   Monitor,
+  Flame,
+  CheckCircle2,
+  AlertTriangle,
+  Bug,
+  Activity,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
-import { PushUpPhase, FormStatus, PushUpSettings, WorkoutStats } from '@/types/fitness';
+import { PushUpPhase, FormStatus, PushUpSettings, WorkoutStats, PushUpDebugInfo } from '@/types/fitness';
 import { PoseAnalysis } from '@/lib/pose-math';
 import { PreWorkoutCountdown } from '@/components/PreWorkoutCountdown';
-import { Flame, CheckCircle2, AlertTriangle } from 'lucide-react';
 
 interface CameraFeedProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -30,12 +36,14 @@ interface CameraFeedProps {
   analysis: PoseAnalysis | null;
   settings: PushUpSettings;
   stats?: WorkoutStats;
+  debugInfo?: PushUpDebugInfo;
   cameraAspect?: '9:16' | '16:9';
   isCountdownActive?: boolean;
   onStartCamera: () => void;
   onStopCamera: () => void;
   onToggleMirror: () => void;
   onToggleAspectRatio?: (aspect: '9:16' | '16:9') => void;
+  onToggleDebug?: () => void;
   onCountdownComplete?: () => void;
   onCountdownCancel?: () => void;
   onUpdateCountdownDuration?: (seconds: number) => void;
@@ -55,18 +63,27 @@ export function CameraFeed({
   analysis,
   settings,
   stats,
+  debugInfo,
   cameraAspect = '9:16',
   isCountdownActive = false,
   onStartCamera,
   onStopCamera,
   onToggleMirror,
   onToggleAspectRatio,
+  onToggleDebug,
   onCountdownComplete,
   onCountdownCancel,
   onUpdateCountdownDuration,
 }: CameraFeedProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showDebugOverlay, setShowDebugOverlay] = useState(settings.debugMode ?? false);
+
+  useEffect(() => {
+    if (settings.debugMode !== undefined) {
+      setShowDebugOverlay(settings.debugMode);
+    }
+  }, [settings.debugMode]);
 
   // Fullscreen toggle handler with 9:16 ratio switch
   const handleToggleFullscreen = () => {
@@ -112,6 +129,11 @@ export function CameraFeed({
     if (onToggleAspectRatio) {
       onToggleAspectRatio(is916 ? '16:9' : '9:16');
     }
+  };
+
+  const handleToggleDebugMode = () => {
+    setShowDebugOverlay((prev) => !prev);
+    if (onToggleDebug) onToggleDebug();
   };
 
   return (
@@ -221,9 +243,13 @@ export function CameraFeed({
                 {fps > 0 ? `${fps} FPS` : '60 FPS'}
               </span>
               {analysis?.landmarksVisible ? (
-                <span className="px-2.5 py-1 bg-lime-400 text-black rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm shadow-lime-400/30">
+                <span className={`px-2.5 py-1 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm ${
+                  analysis.isPositionValid
+                    ? 'bg-lime-400 text-black shadow-lime-400/30'
+                    : 'bg-amber-400 text-black shadow-amber-400/30'
+                }`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-black animate-pulse" />
-                  Full Body
+                  {analysis.isPositionValid ? 'Plank Locked' : 'Adjust Pose'}
                 </span>
               ) : (
                 <span className="px-2.5 py-1 bg-zinc-800/90 text-zinc-300 border border-zinc-700/60 rounded-lg text-[9px] sm:text-[10px] font-bold uppercase tracking-wider backdrop-blur-md">
@@ -234,6 +260,20 @@ export function CameraFeed({
 
             {/* Top Right Controls & Aspect Ratio Toggle */}
             <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex items-center gap-1.5 pointer-events-auto">
+              {/* Debug HUD Toggle Button */}
+              <button
+                id="camera-debug-toggle"
+                onClick={handleToggleDebugMode}
+                title={showDebugOverlay ? 'Hide Debug HUD' : 'Show Debug HUD'}
+                className={`flex h-8 w-8 items-center justify-center rounded-xl backdrop-blur-md border transition-colors cursor-pointer ${
+                  showDebugOverlay
+                    ? 'bg-lime-400 text-black border-lime-300'
+                    : 'bg-black/60 text-zinc-300 hover:text-white hover:bg-black/80 border-white/10'
+                }`}
+              >
+                <Bug className="h-3.5 w-3.5" />
+              </button>
+
               {/* 9:16 vs 16:9 Aspect Ratio Pill Switcher */}
               <button
                 id="aspect-ratio-toggle-btn"
@@ -288,6 +328,93 @@ export function CameraFeed({
                 <CameraOff className="h-3.5 w-3.5" />
               </button>
             </div>
+
+            {/* Developer Debug HUD Overlay */}
+            {showDebugOverlay && debugInfo && (
+              <div className="absolute top-14 left-3 sm:left-4 z-30 max-w-[260px] sm:max-w-xs bg-black/90 backdrop-blur-md rounded-2xl p-3 border border-lime-400/40 text-[10px] sm:text-xs font-mono text-zinc-200 space-y-1 shadow-2xl pointer-events-none">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-1 mb-1.5 font-bold text-lime-400">
+                  <span className="flex items-center gap-1 text-[11px]">
+                    <Activity className="h-3.5 w-3.5 text-lime-400" />
+                    DEBUG HUD
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
+                      debugInfo.isPositionValid
+                        ? 'bg-lime-400/20 text-lime-400 border border-lime-400/40'
+                        : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                    }`}
+                  >
+                    {debugInfo.isPositionValid ? 'VALID' : 'INVALID'}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Orientation:</span>
+                  <span
+                    className={
+                      debugInfo.orientation === 'horizontal'
+                        ? 'text-lime-400 font-bold'
+                        : 'text-amber-400 font-bold'
+                    }
+                  >
+                    {debugInfo.orientation.toUpperCase()} ({debugInfo.torsoAngle}°)
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Confidence:</span>
+                  <span
+                    className={
+                      debugInfo.poseConfidence >= 50
+                        ? 'text-white'
+                        : 'text-amber-400'
+                    }
+                  >
+                    {debugInfo.poseConfidence}%
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Elbow Angle:</span>
+                  <span className="text-white font-bold">
+                    {debugInfo.dominantElbowAngle}° (L:{debugInfo.leftElbowAngle}° / R:{debugInfo.rightElbowAngle}°)
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Hip Alignment:</span>
+                  <span
+                    className={
+                      debugInfo.hipAlignment === 'good'
+                        ? 'text-lime-400'
+                        : 'text-amber-400'
+                    }
+                  >
+                    {debugInfo.hipAlignment.toUpperCase()} ({debugInfo.bodyAngle}°)
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">State:</span>
+                  <span className="text-cyan-400 font-bold">
+                    {debugInfo.currentState.toUpperCase()} ({debugInfo.consecutiveFrames}/{debugInfo.requiredFrames}f)
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Rep Delta:</span>
+                  <span className="text-white">
+                    min: {debugInfo.minAngleInRep}° | Δ: {debugInfo.repAngleDelta}°
+                  </span>
+                </div>
+
+                {!debugInfo.isPositionValid && (
+                  <div className="text-[9px] text-amber-300 bg-amber-500/15 rounded px-1.5 py-0.5 border border-amber-500/30 truncate mt-1">
+                    ⚠️ {debugInfo.invalidReason}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Side Depth Meter Gauge (Left overlay) */}
             <div className="absolute left-3 sm:left-4 top-14 bottom-16 sm:bottom-20 z-20 flex flex-col items-center justify-between w-7 sm:w-8 pointer-events-none">
@@ -378,10 +505,14 @@ export function CameraFeed({
 
                 {/* Dynamic Live Phase Pill */}
                 <div className="flex items-center gap-1.5">
-                  {!analysis?.isPlankOrientation && analysis?.landmarksVisible ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] sm:text-xs font-bold uppercase tracking-tight">
-                      <AlertTriangle className="h-3 w-3" />
-                      Get in Plank
+                  {!analysis?.isPositionValid && analysis?.landmarksVisible ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 text-[10px] sm:text-xs font-bold uppercase tracking-tight">
+                      <ShieldAlert className="h-3 w-3" />
+                      {analysis?.orientation === 'vertical'
+                        ? 'Get in Plank'
+                        : !analysis?.areHandsSupporting
+                        ? 'Hands on Floor'
+                        : 'Invalid Pose'}
                     </span>
                   ) : phase === 'down' ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-lime-400 text-black font-black text-[10px] sm:text-xs uppercase tracking-tight animate-bounce shadow-md shadow-lime-400/50">
@@ -395,8 +526,13 @@ export function CameraFeed({
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-cyan-400/20 border border-cyan-400/40 text-cyan-300 text-[10px] sm:text-xs font-bold uppercase tracking-tight">
                       ⬆ Lock Out
                     </span>
+                  ) : phase === 'position_check' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-300 text-[10px] sm:text-xs font-bold uppercase tracking-tight">
+                      🔄 Locking...
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] sm:text-xs font-bold uppercase tracking-tight">
+                      <ShieldCheck className="h-3 w-3 text-lime-400" />
                       Ready
                     </span>
                   )}

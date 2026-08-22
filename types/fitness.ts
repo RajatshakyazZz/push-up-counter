@@ -1,4 +1,13 @@
-export type PushUpPhase = 'idle' | 'up' | 'going_down' | 'down' | 'going_up' | 'resting';
+export type PushUpPhase =
+  | 'idle'
+  | 'position_check'
+  | 'ready'
+  | 'going_down'
+  | 'down'
+  | 'going_up'
+  | 'up'
+  | 'rep_completed'
+  | 'resting';
 
 export type FormStatus = 
   | 'ready'
@@ -8,13 +17,35 @@ export type FormStatus =
   | 'straighten_back'
   | 'lockout_arms'
   | 'no_person'
-  | 'calibrating';
+  | 'calibrating'
+  | 'invalid_position'
+  | 'hands_misaligned'
+  | 'stand_down';
+
+export interface PushUpDebugInfo {
+  isPositionValid: boolean;
+  invalidReason: string;
+  orientation: 'horizontal' | 'vertical' | 'unknown';
+  torsoAngle: number;
+  bodyAngle: number;
+  poseConfidence: number;
+  leftElbowAngle: number;
+  rightElbowAngle: number;
+  dominantElbowAngle: number;
+  hipAlignment: 'good' | 'sagging' | 'piked' | 'invalid';
+  currentState: string;
+  minAngleInRep: number;
+  repAngleDelta: number;
+  consecutiveFrames: number;
+  requiredFrames: number;
+}
 
 export interface Landmark {
   x: number;
   y: number;
   z?: number;
   visibility?: number;
+  presence?: number;
 }
 
 export interface RepRecord {
@@ -42,6 +73,10 @@ export interface PushUpSettings {
   showSkeleton: boolean;
   showAngles: boolean;
   countdownSeconds: number; // buffer delay in seconds (e.g. 5, 3, 10, or 0)
+  debugMode?: boolean;      // dev debug overlay HUD
+  minRepDurationMs?: number; // minimum valid rep time (e.g. 650ms)
+  minAngleDelta?: number;    // minimum range of motion angle delta (e.g. 35°)
+  requiredConfidence?: number; // required landmark confidence (default 0.5)
 }
 
 export interface WorkoutStats {

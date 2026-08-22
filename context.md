@@ -12,25 +12,16 @@
 ## Key Features & Architecture
 
 ### 1. AI Push-Up Vision Counter & Biomechanics Analysis
-- **Pose Detection**: Uses MediaPipe Pose landmark detection (`@mediapipe/pose` + `@mediapipe/camera_utils`) running directly in browser WebGL / Android WebView at 60 FPS.
-- **Posture Validation Gate (`isValidPushUpPosition` in `lib/pose-math.ts`)**:
-  - **Structure Check Before Motion**: Rep counting and movement tracking are strictly gated behind full body push-up position validation. Standing upright, sitting, bending over, walking, or arm-waving while upright evaluate to `isValid: false` (rep counting remains locked at 0).
-  - **Key Joint Visibility**: Verifies detection and confidence of shoulders, elbows, wrists, hips, and knees/ankles.
-  - **Prone / Plank Alignment**: Computes torso angle relative to horizontal ground (`angleWithHorizontal`), requiring a prone or horizontal plank alignment (side plank ≤ 45°–55°, front-perspective trapezoid with shoulder width > hip width).
-  - **Hand & Wrist Ground Support**: Checks that wrists are placed below shoulders, separated at shoulder-width, and supporting upper body on the floor (rejecting arms raised above shoulders or waving in the air).
-  - **Leg & Spine Extension**: Validates hip-to-shoulder alignment (135°–195°) and extended lower limbs.
-  - **Continuous Lock Requirement**: Requires 5 consecutive valid posture frames to lock into `"Push-up position detected ✓"`.
-- **Finite State Machine & Rep Lifecycle (`usePushUpTracker.ts`)**:
-  - `idle` → `position_check` → `ready` → `going_down` → `down` → `going_up` → `completed`
-  - **Immediate Abort on Posture Loss**: If posture is compromised mid-repetition (e.g. standing up or sitting), the repetition immediately aborts with `"Position lost — reset"` and 0 reps are awarded.
-  - **Target Depth & Lockout**: Reached bottom when elbow angle ≤ `downAngleThreshold` (e.g., ~92°), and rep finishes only upon full lockout (elbow angle ≥ `upAngleThreshold` - 4°).
+- **Pose Detection**: Uses MediaPipe Pose landmark detection (`@mediapipe/pose` + `@mediapipe/camera_utils`) running directly in browser WebGL / Android WebView.
+- **Finite State Machine**:
+  - `IDLE` → `READY` → `DESCENDING` → `BOTTOM` → `ASCENDING` → `COMPLETED`
+  - **Horizontal Plank Verification**: Validates body slope and hip-to-shoulder alignment (`isPlankOrientation`) so vertical movements, bowing, or head bobs are not counted.
   - **Range of Motion (ROM)**: Requires ≥ 35° elbow angle deflection and minimum bottom depth before a rep counts.
   - **Anti-Bounce Filter**: Minimal repetition duration check (≥ 350ms) to filter out jitter and noisy video artifacts.
-- **Visual Skeleton & HUD Overlays (`lib/skeleton-renderer.ts` & `components/CameraFeed.tsx`)**:
-  - **Vivid Green Skeleton**: Distinct emerald shoulder bar, arm vectors, and torso lines when in valid push-up stance (matching reference design).
-  - **Real-Time Posture Status**: HUD displays `"Push-up position detected ✓"`, `"Push-up position not detected"`, `"Go lower"`, `"Push up"`, and `"Great rep!"`.
-  - **Debug Diagnostics Panel**: In-camera toggleable overlay displaying live elbow angles, spine alignment, posture confidence score (0–100%), orientation classification, and blocking reasons.
+- **Visual Skeleton & HUD Overlays**:
+  - High-visibility top-corner rep counter and phase indicators.
   - Angle arcs at elbows, shoulders, and hips.
+  - Color-coded posture lines (Emerald Green for proper form, Amber/Red for hip sag or incomplete depth).
 - **Audio & Haptic Feedback**: Web Audio synthesized sound cues, browser speech synthesis voice announcements, and device vibration haptics.
 - **Pre-Workout Countdown**: Configurable 5-second buffer timer allowing users to set their phone down and get into the starting plank position before tracking begins.
 

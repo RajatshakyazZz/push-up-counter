@@ -45,6 +45,30 @@ export function FormFeedbackCard({
           icon: <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />,
           badgeClass: 'text-amber-700 border-amber-300 bg-amber-50',
         };
+      case 'stand_down':
+        return {
+          title: 'GET IN PLANK',
+          icon: <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />,
+          badgeClass: 'text-amber-700 border-amber-300 bg-amber-50',
+        };
+      case 'hands_misaligned':
+        return {
+          title: 'HANDS ON FLOOR',
+          icon: <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />,
+          badgeClass: 'text-amber-700 border-amber-300 bg-amber-50',
+        };
+      case 'invalid_position':
+        return {
+          title: 'ADJUST POSE',
+          icon: <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />,
+          badgeClass: 'text-amber-700 border-amber-300 bg-amber-50',
+        };
+      case 'calibrating':
+        return {
+          title: 'LOCKING PLANK',
+          icon: <Info className="h-3.5 w-3.5 text-blue-600" />,
+          badgeClass: 'text-blue-700 border-blue-300 bg-blue-50',
+        };
       case 'go_lower':
         return {
           title: 'LOWER CHEST',

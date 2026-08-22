@@ -8,6 +8,7 @@ import {
   PushUpSettings,
   WorkoutStats,
   RepRecord,
+  PushUpDebugInfo,
 } from '@/types/fitness';
 import { PoseAnalysis } from '@/lib/pose-math';
 import {
@@ -32,7 +33,17 @@ export const DEFAULT_SETTINGS: PushUpSettings = {
   showSkeleton: true,
   showAngles: true,
   countdownSeconds: 5,
+  debugMode: false,
+  minRepDurationMs: 650,
+  minAngleDelta: 35,
+  requiredConfidence: 0.45,
 };
+
+// State machine debounce frame requirements
+const POSITION_CONFIRM_FRAMES = 5;
+const DOWN_CONFIRM_FRAMES = 3;
+const UP_CONFIRM_FRAMES = 3;
+const REP_COOLDOWN_MS = 350;
 
 export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
   const [settings, setSettings] = useState<PushUpSettings>({
@@ -42,7 +53,9 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
 
   const [phase, setPhase] = useState<PushUpPhase>('idle');
   const [formStatus, setFormStatus] = useState<FormStatus>('ready');
-  const [feedbackMessage, setFeedbackMessage] = useState<string>('Get into plank position to begin');
+  const [feedbackMessage, setFeedbackMessage] = useState<string>(
+    'Get into push-up position to begin'
+  );
   const [repRecords, setRepRecords] = useState<RepRecord[]>([]);
 
   const [stats, setStats] = useState<WorkoutStats>({
@@ -60,7 +73,25 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
     avgFormScore: 100,
   });
 
-  // State refs to maintain consistency across frame callbacks without stale closures
+  const [debugInfo, setDebugInfo] = useState<PushUpDebugInfo>({
+    isPositionValid: false,
+    invalidReason: 'Not initialized',
+    orientation: 'unknown',
+    torsoAngle: 0,
+    bodyAngle: 180,
+    poseConfidence: 0,
+    leftElbowAngle: 180,
+    rightElbowAngle: 180,
+    dominantElbowAngle: 180,
+    hipAlignment: 'good',
+    currentState: 'idle',
+    minAngleInRep: 180,
+    repAngleDelta: 0,
+    consecutiveFrames: 0,
+    requiredFrames: POSITION_CONFIRM_FRAMES,
+  });
+
+  // State refs for low-latency non-stale callbacks inside requestAnimationFrame
   const phaseRef = useRef<PushUpPhase>('idle');
   const reachedBottomRef = useRef<boolean>(false);
   const repStartTimeRef = useRef<number>(0);
@@ -69,8 +100,14 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
   const lastSpokenTimeRef = useRef<number>(0);
   const lastSpokenMessageRef = useRef<string>('');
   const targetCelebratedRef = useRef<boolean>(false);
+  const lastRepCompletedTimeRef = useRef<number>(0);
   const statsRef = useRef(stats);
   const settingsRef = useRef(settings);
+
+  // Multi-frame debounce confirmation counters
+  const consecutivePositionFramesRef = useRef<number>(0);
+  const consecutiveDownFramesRef = useRef<number>(0);
+  const consecutiveUpFramesRef = useRef<number>(0);
 
   useEffect(() => {
     statsRef.current = stats;
@@ -82,32 +119,111 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
 
   // Sound cooldowns
   const lastDownSoundTimeRef = useRef<number>(0);
+  const lastWarnSoundTimeRef = useRef<number>(0);
 
   // Rate-limited coach feedback
-  const provideFeedback = useCallback((message: string, isSpeech = false, forceSpeech = false) => {
-    setFeedbackMessage(message);
-    const now = Date.now();
+  const provideFeedback = useCallback(
+    (message: string, isSpeech = false, forceSpeech = false) => {
+      setFeedbackMessage(message);
+      const now = Date.now();
 
-    if (
-      settingsRef.current.voiceAnnounce &&
-      isSpeech &&
-      (now - lastSpokenTimeRef.current > 2500 || forceSpeech) &&
-      lastSpokenMessageRef.current !== message
-    ) {
-      lastSpokenTimeRef.current = now;
-      lastSpokenMessageRef.current = message;
-      speakCoachFeedback(message, forceSpeech);
-    }
-  }, []);
+      if (
+        settingsRef.current.voiceAnnounce &&
+        isSpeech &&
+        (now - lastSpokenTimeRef.current > 2500 || forceSpeech) &&
+        lastSpokenMessageRef.current !== message
+      ) {
+        lastSpokenTimeRef.current = now;
+        lastSpokenMessageRef.current = message;
+        speakCoachFeedback(message, forceSpeech);
+      }
+    },
+    []
+  );
 
-  // Frame evaluation function called by PoseDetector
+  // Frame evaluation function called by PoseDetector loop
   const handlePoseFrame = useCallback(
     (analysis: PoseAnalysis) => {
-      // If workout is not active or paused, just show basic status
+      const now = Date.now();
+      const currentPhase = phaseRef.current;
+      const {
+        upAngleThreshold,
+        downAngleThreshold,
+        strictMode,
+        soundEffects,
+        voiceAnnounce,
+        targetReps,
+        minRepDurationMs = 650,
+        minAngleDelta = 35,
+      } = settingsRef.current;
+
+      const {
+        elbowAngle,
+        leftElbowAngle,
+        rightElbowAngle,
+        bodyAngle,
+        isBodyStraight,
+        isPlankOrientation,
+        isPositionValid,
+        positionInvalidReason,
+        orientation,
+        hipAlignmentStatus,
+        confidence,
+        landmarksVisible,
+      } = analysis;
+
+      // Update developer diagnostics
+      setDebugInfo({
+        isPositionValid,
+        invalidReason: positionInvalidReason,
+        orientation,
+        torsoAngle: analysis.torsoAngleWithHorizontal,
+        bodyAngle,
+        poseConfidence: Math.round(confidence * 100),
+        leftElbowAngle,
+        rightElbowAngle,
+        dominantElbowAngle: elbowAngle,
+        hipAlignment: hipAlignmentStatus,
+        currentState: currentPhase,
+        minAngleInRep: Math.round(minAngleInRepRef.current),
+        repAngleDelta:
+          currentPhase === 'going_down' ||
+          currentPhase === 'down' ||
+          currentPhase === 'going_up'
+            ? Math.round(Math.max(0, upAngleThreshold - minAngleInRepRef.current))
+            : 0,
+        consecutiveFrames:
+          currentPhase === 'position_check'
+            ? consecutivePositionFramesRef.current
+            : currentPhase === 'going_down'
+            ? consecutiveDownFramesRef.current
+            : currentPhase === 'going_up'
+            ? consecutiveUpFramesRef.current
+            : 0,
+        requiredFrames:
+          currentPhase === 'position_check'
+            ? POSITION_CONFIRM_FRAMES
+            : currentPhase === 'going_down'
+            ? DOWN_CONFIRM_FRAMES
+            : UP_CONFIRM_FRAMES,
+      });
+
+      // 1. INACTIVE OR PAUSED WORKOUT
       if (!statsRef.current.isActive || statsRef.current.isPaused) {
-        if (!analysis.landmarksVisible) {
+        consecutivePositionFramesRef.current = 0;
+        consecutiveDownFramesRef.current = 0;
+        consecutiveUpFramesRef.current = 0;
+
+        if (!landmarksVisible) {
           setFormStatus('no_person');
           setFeedbackMessage('Step into camera view');
+        } else if (!isPositionValid) {
+          setFormStatus('invalid_position');
+          setFeedbackMessage(
+            statsRef.current.isPaused
+              ? 'Workout paused'
+              : 'Press Start Workout and get into push-up position'
+          );
         } else {
           setFormStatus('ready');
           setFeedbackMessage(
@@ -117,87 +233,133 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
         return;
       }
 
-      // No person visible
-      if (!analysis.landmarksVisible) {
+      // 2. NO PERSON / LANDMARKS LOST
+      if (!landmarksVisible) {
+        consecutivePositionFramesRef.current = 0;
+        consecutiveDownFramesRef.current = 0;
+        consecutiveUpFramesRef.current = 0;
+
+        if (
+          currentPhase === 'going_down' ||
+          currentPhase === 'down' ||
+          currentPhase === 'going_up'
+        ) {
+          // Cancel active rep safely
+          reachedBottomRef.current = false;
+          phaseRef.current = 'idle';
+          setPhase('idle');
+        }
+
         setFormStatus('no_person');
         setFeedbackMessage('No person detected. Position your full body in frame.');
         return;
       }
 
-      const { elbowAngle, bodyAngle, isBodyStraight, isPlankOrientation } = analysis;
-      const {
-        upAngleThreshold,
-        downAngleThreshold,
-        strictMode,
-        soundEffects,
-        voiceAnnounce,
-        targetReps,
-      } = settingsRef.current;
+      // 3. STRICT PUSH-UP POSITION GATE ENFORCEMENT
+      // If position is invalid (standing, sitting, waving hands, camera shifted),
+      // DO NOT allow rep progression, cancel any active in-flight rep, and hold in idle/position_check.
+      if (!isPositionValid) {
+        consecutivePositionFramesRef.current = 0;
+        consecutiveDownFramesRef.current = 0;
+        consecutiveUpFramesRef.current = 0;
 
-      const now = Date.now();
+        if (
+          currentPhase === 'going_down' ||
+          currentPhase === 'down' ||
+          currentPhase === 'going_up' ||
+          currentPhase === 'ready' ||
+          currentPhase === 'up'
+        ) {
+          reachedBottomRef.current = false;
+          phaseRef.current = 'idle';
+          setPhase('idle');
+        }
 
-      // Check if user is in horizontal plank posture vs standing upright
-      if (!isPlankOrientation && phaseRef.current === 'idle') {
-        setFormStatus('ready');
-        setFeedbackMessage('Get down into plank position on the floor to start');
+        if (orientation === 'vertical' || !isPlankOrientation) {
+          setFormStatus('stand_down');
+          provideFeedback('Get down into push-up position on the floor', false);
+        } else if (!analysis.areHandsSupporting) {
+          setFormStatus('hands_misaligned');
+          provideFeedback('Place your hands firmly on the ground under shoulders', false);
+        } else if (!isBodyStraight) {
+          setFormStatus('straighten_back');
+          provideFeedback(positionInvalidReason || 'Align hips with back', false);
+        } else {
+          setFormStatus('invalid_position');
+          provideFeedback(positionInvalidReason || 'Get into push-up position', false);
+        }
         return;
       }
 
-      // Form score for current frame (100 is perfect)
+      // 4. FORM SCORING
       let currentFrameScore = 100;
       if (!isBodyStraight) {
-        currentFrameScore -= 25;
+        currentFrameScore -= 30;
       }
-      if (!isPlankOrientation) {
+      if (hipAlignmentStatus === 'sagging' || hipAlignmentStatus === 'piked') {
         currentFrameScore -= 20;
       }
       formScoresInRepRef.current.push(currentFrameScore);
 
-      // Track minimum elbow angle achieved during current descent
+      // Warning sound for sagging hips
+      if (
+        !isBodyStraight &&
+        (currentPhase === 'ready' ||
+          currentPhase === 'going_down' ||
+          currentPhase === 'down' ||
+          currentPhase === 'going_up')
+      ) {
+        if (soundEffects && now - lastWarnSoundTimeRef.current > 4000) {
+          playFormWarning();
+          lastWarnSoundTimeRef.current = now;
+        }
+      }
+
+      // Track minimum elbow angle achieved during descent
       if (elbowAngle < minAngleInRepRef.current) {
         minAngleInRepRef.current = elbowAngle;
       }
 
-      // Live Form Check
-      if (!isBodyStraight && phaseRef.current !== 'idle' && phaseRef.current !== 'resting') {
-        setFormStatus('straighten_back');
-        provideFeedback('Keep hips aligned with back', false);
-        if (soundEffects && now - lastDownSoundTimeRef.current > 4000) {
-          playFormWarning();
-          lastDownSoundTimeRef.current = now;
-        }
-      }
-
-      // PUSH-UP FINITE STATE MACHINE
-      const currentPhase = phaseRef.current;
-
+      // 5. STRICT PUSH-UP FINITE STATE MACHINE
       switch (currentPhase) {
         case 'idle':
-        case 'resting': {
-          // Check if user is in top plank position (arms extended and body prone)
-          if (isPlankOrientation && elbowAngle >= upAngleThreshold - 12) {
-            phaseRef.current = 'up';
-            setPhase('up');
-            setFormStatus('good_form');
-            provideFeedback('Plank locked. Lower your chest!', true);
-          } else if (!isPlankOrientation) {
-            setFormStatus('ready');
-            setFeedbackMessage('Get down into plank position on the floor');
+        case 'resting':
+        case 'position_check': {
+          // Check if user is in top extended plank position
+          if (isPositionValid && elbowAngle >= upAngleThreshold - 14) {
+            consecutivePositionFramesRef.current++;
+
+            if (consecutivePositionFramesRef.current >= POSITION_CONFIRM_FRAMES) {
+              phaseRef.current = 'ready';
+              setPhase('ready');
+              consecutivePositionFramesRef.current = 0;
+              setFormStatus('good_form');
+              provideFeedback('Ready — start your push-up!', true);
+            } else {
+              phaseRef.current = 'position_check';
+              setPhase('position_check');
+              setFormStatus('calibrating');
+              setFeedbackMessage('Hold push-up position...');
+            }
           } else {
+            consecutivePositionFramesRef.current = 0;
+            phaseRef.current = 'idle';
+            setPhase('idle');
             setFormStatus('ready');
-            setFeedbackMessage('Straighten your arms to begin the rep');
+            setFeedbackMessage('Straighten your arms in plank to begin');
           }
           break;
         }
 
+        case 'ready':
         case 'up': {
-          // If user stands up completely during workout, return to resting/idle
-          if (!isPlankOrientation && elbowAngle > 140) {
-            setFeedbackMessage('Get down into plank position on the floor');
+          // Cooldown guard: Prevent starting a new descent immediately after previous rep
+          if (now - lastRepCompletedTimeRef.current < REP_COOLDOWN_MS) {
+            setFeedbackMessage('Hold steady tempo');
             return;
           }
 
-          // Starting descent with arms bending
+          // Starting descent: arms bending below top threshold exit (hysteresis)
           if (elbowAngle < upAngleThreshold - 14) {
             phaseRef.current = 'going_down';
             setPhase('going_down');
@@ -205,8 +367,12 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
             repStartTimeRef.current = now;
             minAngleInRepRef.current = elbowAngle;
             formScoresInRepRef.current = [currentFrameScore];
+            consecutiveDownFramesRef.current = 0;
             setFormStatus('good_form');
             setFeedbackMessage('Lowering chest down...');
+          } else {
+            setFormStatus('good_form');
+            setFeedbackMessage('Ready — lower your chest!');
           }
           break;
         }
@@ -214,38 +380,52 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
         case 'going_down': {
           // Check if valid bottom depth is reached
           if (elbowAngle <= downAngleThreshold) {
-            phaseRef.current = 'down';
-            setPhase('down');
-            reachedBottomRef.current = true;
-            setFormStatus('perfect_depth');
-            setFeedbackMessage('Target depth reached! Push up!');
+            consecutiveDownFramesRef.current++;
 
-            if (soundEffects && now - lastDownSoundTimeRef.current > 450) {
-              playDownCue();
-              lastDownSoundTimeRef.current = now;
+            if (consecutiveDownFramesRef.current >= DOWN_CONFIRM_FRAMES) {
+              phaseRef.current = 'down';
+              setPhase('down');
+              reachedBottomRef.current = true;
+              consecutiveDownFramesRef.current = 0;
+              setFormStatus('perfect_depth');
+              provideFeedback('Now push up!', true);
+
+              if (soundEffects && now - lastDownSoundTimeRef.current > 450) {
+                playDownCue();
+                lastDownSoundTimeRef.current = now;
+              }
             }
-          } else if (elbowAngle > upAngleThreshold - 10 && !reachedBottomRef.current) {
-            // User went back up without reaching bottom (incomplete rep)
-            const repDuration = now - repStartTimeRef.current;
-            if (repDuration > 300) {
-              setStats((prev) => ({
-                ...prev,
-                invalidAttempts: prev.invalidAttempts + 1,
-              }));
-              setFormStatus('go_lower');
-              provideFeedback('Go lower for a full repetition', true);
+          } else {
+            consecutiveDownFramesRef.current = 0;
+
+            // Incomplete rep check: User went back up before reaching bottom
+            if (
+              elbowAngle > upAngleThreshold - 10 &&
+              !reachedBottomRef.current
+            ) {
+              const repDuration = now - repStartTimeRef.current;
+              if (repDuration > 400) {
+                setStats((prev) => ({
+                  ...prev,
+                  invalidAttempts: prev.invalidAttempts + 1,
+                }));
+                setFormStatus('go_lower');
+                provideFeedback('Go lower for a full repetition', true);
+              }
+              phaseRef.current = 'ready';
+              setPhase('ready');
+              consecutiveDownFramesRef.current = 0;
             }
-            phaseRef.current = 'up';
-            setPhase('up');
           }
           break;
         }
 
         case 'down': {
-          // User begins pushing back up
+          // User begins pushing back up past hysteresis threshold
           if (elbowAngle > downAngleThreshold + 12) {
             phaseRef.current = 'going_up';
             setPhase('going_up');
+            consecutiveUpFramesRef.current = 0;
             setFormStatus('good_form');
             setFeedbackMessage('Pushing up to lockout...');
           }
@@ -253,119 +433,143 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
         }
 
         case 'going_up': {
-          // Rep Completed: arms locked out again (upAngleThreshold - 4 for forgiving lockout)
+          // Check if arms reached top lockout threshold
           if (elbowAngle >= upAngleThreshold - 4) {
-            const repDuration = now - repStartTimeRef.current;
-            const rom = upAngleThreshold - minAngleInRepRef.current;
-            const avgForm =
-              formScoresInRepRef.current.length > 0
-                ? Math.round(
-                    formScoresInRepRef.current.reduce((a, b) => a + b, 0) /
-                      formScoresInRepRef.current.length
-                  )
-                : 90;
+            consecutiveUpFramesRef.current++;
 
-            // Security against false triggers:
-            // 1. Must have reached legitimate bottom depth (reachedBottomRef === true)
-            // 2. Must have completed full range of motion (rom >= 35°)
-            // 3. Minimum human rep duration (>= 350ms)
-            // 4. Must be in plank posture
-            const isRepStrictlyValid =
-              reachedBottomRef.current &&
-              rom >= 35 &&
-              repDuration >= 350 &&
-              (!strictMode || avgForm >= 65);
+            if (consecutiveUpFramesRef.current >= UP_CONFIRM_FRAMES) {
+              const repDuration = now - repStartTimeRef.current;
+              const rom = upAngleThreshold - minAngleInRepRef.current;
+              const avgForm =
+                formScoresInRepRef.current.length > 0
+                  ? Math.round(
+                      formScoresInRepRef.current.reduce((a, b) => a + b, 0) /
+                        formScoresInRepRef.current.length
+                    )
+                  : 90;
 
-            if (isRepStrictlyValid) {
-              const newRepCount = statsRef.current.totalReps + 1;
-              const newStreak = statsRef.current.currentStreak + 1;
-              const newBestStreak = Math.max(statsRef.current.bestStreak, newStreak);
+              // Strict Rep Validation Criteria:
+              // 1. Must have reached verified bottom depth (reachedBottomRef === true)
+              // 2. Range of motion delta must meet minimum (rom >= minAngleDelta, default 35°)
+              // 3. Minimum human rep duration (>= minRepDurationMs, default 650ms)
+              // 4. Must be in valid push-up posture throughout
+              // 5. Strict mode form threshold
+              const isRepStrictlyValid =
+                reachedBottomRef.current &&
+                rom >= minAngleDelta &&
+                repDuration >= minRepDurationMs &&
+                (!strictMode || avgForm >= 65);
 
-              // Audio & speech cue (non-blocking)
-              if (soundEffects) {
-                playRepChime();
-              }
-              if (voiceAnnounce) {
-                speakCoachFeedback(`${newRepCount}`, true);
-              }
+              if (isRepStrictlyValid) {
+                const newRepCount = statsRef.current.totalReps + 1;
+                const newStreak = statsRef.current.currentStreak + 1;
+                const newBestStreak = Math.max(
+                  statsRef.current.bestStreak,
+                  newStreak
+                );
 
-              // Rep record entry
-              const newRecord: RepRecord = {
-                repNumber: newRepCount,
-                timestamp: now,
-                durationMs: repDuration,
-                minElbowAngle: Math.round(minAngleInRepRef.current),
-                bodyAngle: Math.round(bodyAngle),
-                formScore: avgForm,
-                isValid: true,
-              };
-
-              setRepRecords((prev) => [newRecord, ...prev]);
-
-              // Update stats
-              setStats((prev) => {
-                const total = newRepCount;
-                const elapsedMin = Math.max(1 / 60, prev.elapsedSeconds / 60);
-                const rpm = Math.round((total / elapsedMin) * 10) / 10;
-                const calories = Math.round(total * 0.35 * 10) / 10; // ~0.35 cal per pushup
-
-                return {
-                  ...prev,
-                  totalReps: total,
-                  currentStreak: newStreak,
-                  bestStreak: newBestStreak,
-                  avgPaceRpm: rpm,
-                  caloriesBurned: calories,
-                  avgDepthAngle: Math.round(
-                    (prev.avgDepthAngle * (total - 1) + minAngleInRepRef.current) / total
-                  ),
-                  avgFormScore: Math.round(
-                    (prev.avgFormScore * (total - 1) + avgForm) / total
-                  ),
-                };
-              });
-
-              // Check if target reps achieved
-              if (newRepCount === targetReps && !targetCelebratedRef.current) {
-                targetCelebratedRef.current = true;
                 if (soundEffects) {
-                  playTargetReachedFanfare();
+                  playRepChime();
                 }
                 if (voiceAnnounce) {
-                  speakCoachFeedback(`Goal reached! Outstanding workout!`, true);
+                  speakCoachFeedback(`${newRepCount}`, true);
                 }
-                confetti({
-                  particleCount: 120,
-                  spread: 80,
-                  origin: { y: 0.6 },
+
+                const newRecord: RepRecord = {
+                  repNumber: newRepCount,
+                  timestamp: now,
+                  durationMs: repDuration,
+                  minElbowAngle: Math.round(minAngleInRepRef.current),
+                  bodyAngle: Math.round(bodyAngle),
+                  formScore: avgForm,
+                  isValid: true,
+                };
+
+                setRepRecords((prev) => [newRecord, ...prev]);
+
+                setStats((prev) => {
+                  const total = newRepCount;
+                  const elapsedMin = Math.max(1 / 60, prev.elapsedSeconds / 60);
+                  const rpm = Math.round((total / elapsedMin) * 10) / 10;
+                  const calories = Math.round(total * 0.35 * 10) / 10;
+
+                  return {
+                    ...prev,
+                    totalReps: total,
+                    currentStreak: newStreak,
+                    bestStreak: newBestStreak,
+                    avgPaceRpm: rpm,
+                    caloriesBurned: calories,
+                    avgDepthAngle: Math.round(
+                      (prev.avgDepthAngle * (total - 1) +
+                        minAngleInRepRef.current) /
+                        total
+                    ),
+                    avgFormScore: Math.round(
+                      (prev.avgFormScore * (total - 1) + avgForm) / total
+                    ),
+                  };
                 });
+
+                // Target celebration
+                if (
+                  newRepCount === targetReps &&
+                  !targetCelebratedRef.current
+                ) {
+                  targetCelebratedRef.current = true;
+                  if (soundEffects) {
+                    playTargetReachedFanfare();
+                  }
+                  if (voiceAnnounce) {
+                    speakCoachFeedback(
+                      `Goal reached! Outstanding workout!`,
+                      true
+                    );
+                  }
+                  confetti({
+                    particleCount: 120,
+                    spread: 80,
+                    origin: { y: 0.6 },
+                  });
+                }
+
+                setFormStatus('good_form');
+                provideFeedback(`Rep ${newRepCount} counted! Great rep!`, true);
+                lastRepCompletedTimeRef.current = now;
+              } else if (
+                reachedBottomRef.current &&
+                repDuration < minRepDurationMs
+              ) {
+                // Too fast / noisy jitter
+                setFeedbackMessage('Hold steady tempo — don’t rush');
+              } else {
+                setFormStatus('straighten_back');
+                provideFeedback(
+                  'Incomplete range of motion. Keep plank straight and lock out!',
+                  false
+                );
+                setStats((prev) => ({
+                  ...prev,
+                  currentStreak: 0,
+                  invalidAttempts: prev.invalidAttempts + 1,
+                }));
               }
 
-              setFormStatus('good_form');
-              setFeedbackMessage(`Rep ${newRepCount} counted! Keep going!`);
-            } else if (reachedBottomRef.current && repDuration < 350) {
-              // Too fast / noisy jitter, ignore without penalty
-              setFeedbackMessage('Hold steady tempo');
-            } else {
-              setFormStatus('straighten_back');
-              provideFeedback('Incomplete form. Keep plank straight and lock out!', false);
-              setStats((prev) => ({
-                ...prev,
-                currentStreak: 0,
-                invalidAttempts: prev.invalidAttempts + 1,
-              }));
+              // Reset cycle back to ready
+              phaseRef.current = 'ready';
+              setPhase('ready');
+              reachedBottomRef.current = false;
+              minAngleInRepRef.current = 180;
+              formScoresInRepRef.current = [];
+              consecutiveUpFramesRef.current = 0;
             }
-
-            // Reset cycle back to up
-            phaseRef.current = 'up';
-            setPhase('up');
-            reachedBottomRef.current = false;
-            minAngleInRepRef.current = 180;
-            formScoresInRepRef.current = [];
           } else if (elbowAngle < downAngleThreshold) {
             // Sunk back down
             phaseRef.current = 'down';
             setPhase('down');
+            consecutiveUpFramesRef.current = 0;
+          } else {
+            consecutiveUpFramesRef.current = 0;
           }
           break;
         }
@@ -407,6 +611,9 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
     phaseRef.current = 'idle';
     setPhase('idle');
     setFormStatus('ready');
+    consecutivePositionFramesRef.current = 0;
+    consecutiveDownFramesRef.current = 0;
+    consecutiveUpFramesRef.current = 0;
     setStats((prev) => ({
       ...prev,
       isActive: true,
@@ -414,7 +621,10 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
       startTime: prev.startTime || Date.now(),
     }));
     if (settings.voiceAnnounce) {
-      speakCoachFeedback('Workout started. Get into position!', true);
+      speakCoachFeedback(
+        'Workout started. Get into push-up position!',
+        true
+      );
     }
   }, [settings.voiceAnnounce]);
 
@@ -438,6 +648,9 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
     phaseRef.current = 'idle';
     reachedBottomRef.current = false;
     targetCelebratedRef.current = false;
+    consecutivePositionFramesRef.current = 0;
+    consecutiveDownFramesRef.current = 0;
+    consecutiveUpFramesRef.current = 0;
     setPhase('idle');
     setFormStatus('ready');
     setFeedbackMessage('Ready for next session');
@@ -458,9 +671,12 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
     });
   }, []);
 
-  const updateSettings = useCallback((newSettings: Partial<PushUpSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }));
-  }, []);
+  const updateSettings = useCallback(
+    (newSettings: Partial<PushUpSettings>) => {
+      setSettings((prev) => ({ ...prev, ...newSettings }));
+    },
+    []
+  );
 
   return {
     phase,
@@ -469,6 +685,7 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
     stats,
     repRecords,
     settings,
+    debugInfo,
     handlePoseFrame,
     startWorkout,
     pauseWorkout,
@@ -477,3 +694,4 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
     updateSettings,
   };
 }
+

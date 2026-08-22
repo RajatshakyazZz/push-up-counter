@@ -54,14 +54,16 @@ export function drawPoseSkeleton(
   };
 
   const isDown = analysis.depthPercentage >= 90;
-  const isGoodForm = analysis.isBodyStraight;
+  const isGoodForm = analysis.isBodyStraight && analysis.isPositionValid;
 
   // Set line styling
-  const baseColor = isDown
+  const baseColor = !analysis.isPositionValid
+    ? '#fbbf24' // amber-400 when posture not in push-up plank
+    : isDown
     ? '#a3e635' // lime-400 when target depth reached
     : '#84cc16'; // lime-500 tracking color
 
-  const warnColor = '#f59e0b'; // amber warning if hips sag
+  const warnColor = '#f59e0b'; // amber warning if hips sag or invalid orientation
 
   // 1. Draw connections (Bones)
   ctx.lineWidth = 4;

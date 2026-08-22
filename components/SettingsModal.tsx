@@ -196,7 +196,41 @@ export function SettingsModal({
                 type="checkbox"
                 checked={settings.soundEffects}
                 onChange={(e) => onUpdateSettings({ soundEffects: e.target.checked })}
-                className="h-4 w-4 accent-emerald-600 rounded cursor-pointer"
+                className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+              />
+            </label>
+
+            {/* Developer Debug HUD */}
+            <label className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 cursor-pointer">
+              <div className="flex items-center gap-2.5">
+                <Sliders className="h-4 w-4 text-purple-600" />
+                <div>
+                  <div className="text-xs font-bold text-gray-900">Developer Debug HUD</div>
+                  <div className="text-[11px] text-gray-500">Show real-time angle & state diagnostics</div>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={!!settings.debugMode}
+                onChange={(e) => onUpdateSettings({ debugMode: e.target.checked })}
+                className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+              />
+            </label>
+
+            {/* Strict Form Gate */}
+            <label className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 cursor-pointer">
+              <div className="flex items-center gap-2.5">
+                <ShieldAlert className="h-4 w-4 text-emerald-600" />
+                <div>
+                  <div className="text-xs font-bold text-gray-900">Strict Form Mode</div>
+                  <div className="text-[11px] text-gray-500">Reject reps if spine sags or bends</div>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={!!settings.strictMode}
+                onChange={(e) => onUpdateSettings({ strictMode: e.target.checked })}
+                className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
               />
             </label>
           </div>

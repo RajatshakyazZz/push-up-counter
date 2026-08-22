@@ -78,6 +78,7 @@ export default function PushLockApp() {
     stats,
     repRecords,
     settings,
+    debugInfo,
     handlePoseFrame,
     startWorkout,
     pauseWorkout,
@@ -383,6 +384,7 @@ export default function PushLockApp() {
                   analysis={latestAnalysis}
                   settings={settings}
                   stats={stats}
+                  debugInfo={debugInfo}
                   cameraAspect={cameraAspect}
                   isCountdownActive={isCountdownActive}
                   onStartCamera={() => startCamera(selectedCameraId)}
@@ -392,6 +394,7 @@ export default function PushLockApp() {
                   }}
                   onToggleMirror={() => updateSettings({ mirrorVideo: !settings.mirrorVideo })}
                   onToggleAspectRatio={(aspect) => setCameraAspect(aspect)}
+                  onToggleDebug={() => updateSettings({ debugMode: !settings.debugMode })}
                   onCountdownComplete={handleCountdownComplete}
                   onCountdownCancel={handleCountdownCancel}
                   onUpdateCountdownDuration={(sec) => updateSettings({ countdownSeconds: sec })}

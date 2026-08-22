@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 import { Landmark, PushUpSettings } from '@/types/fitness';
-import { analyzePushUpPose, PoseAnalysis } from '@/lib/pose-math';
+import { analyzePushUpPose, PoseAnalysis, LandmarkSmoother } from '@/lib/pose-math';
 import { drawPoseSkeleton } from '@/lib/skeleton-renderer';
 
 export interface CameraDevice {
@@ -34,6 +34,7 @@ export function usePoseDetector(
 
   const fpsCountRef = useRef<number>(0);
   const fpsTimeRef = useRef<number>(0);
+  const smootherRef = useRef<LandmarkSmoother>(new LandmarkSmoother(0.65));
 
   // 1. Initialize MediaPipe PoseLandmarker
   useEffect(() => {
@@ -162,6 +163,7 @@ export function usePoseDetector(
       cancelAnimationFrame(requestRef.current);
       requestRef.current = null;
     }
+    smootherRef.current.reset();
     setIsCameraActive(false);
   }, []);
 
@@ -204,15 +206,19 @@ export function usePoseDetector(
             const results = landmarkerRef.current.detectForVideo(video, startTimeMs);
 
             if (results.landmarks && results.landmarks.length > 0) {
-              const currentLandmarks = results.landmarks[0] as Landmark[];
+              const rawLandmarks = results.landmarks[0] as Landmark[];
+              // Smooth landmarks temporally to eliminate noise spikes
+              const currentLandmarks = smootherRef.current.smooth(rawLandmarks);
               setLandmarks(currentLandmarks);
 
               const analysis = analyzePushUpPose(
                 currentLandmarks,
                 settings.upAngleThreshold,
                 settings.downAngleThreshold,
-                settings.pushUpVariant
+                settings.pushUpVariant,
+                settings.requiredConfidence
               );
+              analysis.smoothedLandmarks = currentLandmarks;
 
               setLatestAnalysis(analysis);
               onPoseFrame(analysis);
@@ -242,6 +248,7 @@ export function usePoseDetector(
               }
             } else {
               // No person detected in this frame
+              smootherRef.current.reset();
               const emptyAnalysis: PoseAnalysis = {
                 dominantSide: 'both',
                 elbowAngle: 180,
@@ -250,11 +257,18 @@ export function usePoseDetector(
                 bodyAngle: 180,
                 shoulderAngle: 90,
                 torsoAngleWithHorizontal: 0,
+                fullBodyAngleWithHorizontal: 0,
                 isPlankOrientation: false,
+                isPositionValid: false,
+                positionInvalidReason: 'No person detected. Position full body in frame.',
+                orientation: 'unknown',
+                hipAlignmentStatus: 'invalid',
                 depthPercentage: 0,
-                isBodyStraight: true,
+                isBodyStraight: false,
                 confidence: 0,
                 landmarksVisible: false,
+                isFullBodyVisible: false,
+                areHandsSupporting: false,
               };
               setLandmarks([]);
               setLatestAnalysis(emptyAnalysis);
@@ -291,6 +305,7 @@ export function usePoseDetector(
     settings.upAngleThreshold,
     settings.downAngleThreshold,
     settings.pushUpVariant,
+    settings.requiredConfidence,
     settings.showSkeleton,
     settings.showAngles,
     settings.mirrorVideo,
