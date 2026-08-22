@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Settings,
   Shield,
@@ -20,6 +20,8 @@ import {
   Check,
   Server,
   Zap,
+  RotateCcw,
+  Trash2,
 } from 'lucide-react';
 import { PushUpSettings, AppProtectionSettings } from '@/types/fitness';
 import { triggerHaptic } from '@/lib/haptics';
@@ -29,6 +31,7 @@ interface SettingsViewProps {
   protectionSettings: AppProtectionSettings;
   onUpdateSettings: (newSettings: Partial<PushUpSettings>) => void;
   onUpdateProtectionSettings: (newSettings: Partial<AppProtectionSettings>) => void;
+  onResetAllData?: () => void;
 }
 
 export function SettingsView({
@@ -36,7 +39,9 @@ export function SettingsView({
   protectionSettings,
   onUpdateSettings,
   onUpdateProtectionSettings,
+  onResetAllData,
 }: SettingsViewProps) {
+  const [resetSuccess, setResetSuccess] = useState(false);
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6 pb-24">
       {/* Top Header */}
@@ -284,6 +289,49 @@ export function SettingsView({
         <p className="text-xs text-emerald-800 leading-relaxed">
           PushLock AI runs MediaPipe Pose vision models directly on your device. Video frames are processed in-memory and are never recorded, uploaded, or transmitted to any external servers. Zero recurring cloud costs.
         </p>
+      </div>
+
+      {/* Data Management & Reset Storage Card */}
+      <div className="bg-white rounded-3xl p-6 border border-gray-200/80 shadow-xs space-y-4">
+        <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
+          <Trash2 className="w-5 h-5 text-gray-500" />
+          <h2 className="text-base font-black text-gray-900">
+            Storage & Data Management
+          </h2>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-gray-50 border border-gray-200/80">
+          <div>
+            <h3 className="text-sm font-bold text-gray-900">Reset All Data & App Stats</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Clears workout logs, active timers, and resets all app counters to 0.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (onResetAllData) {
+                onResetAllData();
+                setResetSuccess(true);
+                setTimeout(() => setResetSuccess(false), 2500);
+              }
+            }}
+            className="px-4 py-2.5 rounded-xl bg-gray-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200 border border-transparent font-bold text-xs text-gray-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+          >
+            {resetSuccess ? (
+              <>
+                <Check className="w-4 h-4 text-emerald-600" />
+                <span className="text-emerald-700">Data Cleared!</span>
+              </>
+            ) : (
+              <>
+                <RotateCcw className="w-4 h-4" />
+                <span>Reset All Data</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

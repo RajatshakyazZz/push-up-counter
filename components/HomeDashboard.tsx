@@ -284,37 +284,58 @@ export function HomeDashboard({
         </div>
 
         <div className="space-y-2.5">
-          {workoutHistory.slice(0, 3).map((log) => (
-            <div
-              key={log.id}
-              className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/70"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-emerald-100 text-emerald-700">
-                  <CheckCircle2 className="w-4 h-4" />
+          {workoutHistory.length === 0 ? (
+            <div className="p-6 rounded-2xl bg-gray-50 border border-gray-200/70 text-center flex flex-col items-center justify-center gap-2.5">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                <Dumbbell className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-800">No push-up sessions logged yet today</p>
+                <p className="text-xs text-gray-500 mt-0.5">Start a push-up workout to earn screen time and unlock protected apps!</p>
+              </div>
+              <button
+                onClick={() => {
+                  triggerHaptic('click');
+                  onNavigateToTab('workout');
+                }}
+                className="mt-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+              >
+                Start First Workout
+              </button>
+            </div>
+          ) : (
+            workoutHistory.slice(0, 3).map((log) => (
+              <div
+                key={log.id}
+                className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/70"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-emerald-100 text-emerald-700">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">
+                      {log.unlockedAppName
+                        ? `Unlocked ${log.unlockedAppName}`
+                        : 'Free Push-Up Workout'}
+                    </h3>
+                    <div className="text-xs text-gray-500">
+                      {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {log.durationSeconds}s session
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-gray-900">
-                    {log.unlockedAppName
-                      ? `Unlocked ${log.unlockedAppName}`
-                      : 'Free Push-Up Workout'}
-                  </h3>
-                  <div className="text-xs text-gray-500">
-                    {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {log.durationSeconds}s session
+
+                <div className="text-right">
+                  <div className="text-sm font-black text-emerald-600">
+                    +{log.reps} Reps
+                  </div>
+                  <div className="text-[11px] text-gray-500">
+                    {log.caloriesBurned} kcal
                   </div>
                 </div>
               </div>
-
-              <div className="text-right">
-                <div className="text-sm font-black text-emerald-600">
-                  +{log.reps} Reps
-                </div>
-                <div className="text-[11px] text-gray-500">
-                  {log.caloriesBurned} kcal
-                </div>
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>

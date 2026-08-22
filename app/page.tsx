@@ -445,6 +445,12 @@ export default function PushLockApp() {
               const updated = androidAppLocker.saveProtectionSettings(newSet);
               setProtectionSettings(updated);
             }}
+            onResetAllData={() => {
+              androidAppLocker.resetAllData();
+              setProtectedApps(androidAppLocker.getProtectedApps());
+              setActiveSessions(androidAppLocker.getActiveUnlockSessions());
+              setWorkoutHistory(androidAppLocker.getWorkoutHistory());
+            }}
           />
         )}
       </main>

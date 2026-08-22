@@ -84,8 +84,16 @@ export function HistoryView({ workoutHistory }: HistoryViewProps) {
 
       {/* Grouped Logs */}
       {Object.keys(groupedLogs).length === 0 ? (
-        <div className="bg-white rounded-3xl p-8 border border-gray-200 text-center text-gray-500">
-          <p className="font-semibold text-sm">No workout sessions logged yet</p>
+        <div className="bg-white rounded-3xl p-10 border border-gray-200/80 shadow-xs text-center flex flex-col items-center justify-center gap-3">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <Trophy className="w-7 h-7" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-gray-900">No workout records found</h3>
+            <p className="text-xs text-gray-500 max-w-sm mt-1">
+              Your real AI-counted push-up repetitions, unlock rewards, form accuracy scores, and burned calories will be tracked here automatically.
+            </p>
+          </div>
         </div>
       ) : (
         Object.entries(groupedLogs).map(([dateStr, logs]) => (

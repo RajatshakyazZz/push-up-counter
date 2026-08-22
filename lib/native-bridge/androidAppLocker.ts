@@ -7,7 +7,7 @@ import {
 } from '@/types/fitness';
 import { triggerHaptic } from '@/lib/haptics';
 
-// Default pre-configured sample apps (Clearly labeled Demo apps in web preview)
+// Pre-configured app catalogue with clean 0-initial counters
 export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
   {
     id: 'app-instagram',
@@ -19,8 +19,8 @@ export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
     targetReps: 20,
     unlockMinutes: 15,
     isProtected: true,
-    timesUnlockedToday: 2,
-    totalUnlocks: 14,
+    timesUnlockedToday: 0,
+    totalUnlocks: 0,
     lastUnlockedAt: null,
   },
   {
@@ -33,8 +33,8 @@ export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
     targetReps: 25,
     unlockMinutes: 20,
     isProtected: true,
-    timesUnlockedToday: 1,
-    totalUnlocks: 9,
+    timesUnlockedToday: 0,
+    totalUnlocks: 0,
     lastUnlockedAt: null,
   },
   {
@@ -48,7 +48,7 @@ export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
     unlockMinutes: 10,
     isProtected: true,
     timesUnlockedToday: 0,
-    totalUnlocks: 5,
+    totalUnlocks: 0,
     lastUnlockedAt: null,
   },
   {
@@ -62,7 +62,7 @@ export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
     unlockMinutes: 15,
     isProtected: false,
     timesUnlockedToday: 0,
-    totalUnlocks: 3,
+    totalUnlocks: 0,
     lastUnlockedAt: null,
   },
   {
@@ -75,8 +75,8 @@ export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
     targetReps: 15,
     unlockMinutes: 15,
     isProtected: true,
-    timesUnlockedToday: 1,
-    totalUnlocks: 8,
+    timesUnlockedToday: 0,
+    totalUnlocks: 0,
     lastUnlockedAt: null,
   },
   {
@@ -90,7 +90,7 @@ export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
     unlockMinutes: 15,
     isProtected: false,
     timesUnlockedToday: 0,
-    totalUnlocks: 2,
+    totalUnlocks: 0,
     lastUnlockedAt: null,
   },
   {
@@ -104,7 +104,7 @@ export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
     unlockMinutes: 10,
     isProtected: false,
     timesUnlockedToday: 0,
-    totalUnlocks: 4,
+    totalUnlocks: 0,
     lastUnlockedAt: null,
   },
   {
@@ -118,7 +118,7 @@ export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
     unlockMinutes: 30,
     isProtected: true,
     timesUnlockedToday: 0,
-    totalUnlocks: 6,
+    totalUnlocks: 0,
     lastUnlockedAt: null,
   },
 ];
@@ -462,70 +462,31 @@ export class AndroidAppLockerService {
   }
 
   /**
-   * Workout History
+   * Workout History (Stores real user completed workout sessions)
    */
   public getWorkoutHistory(): WorkoutSessionLog[] {
     if (typeof window === 'undefined') return [];
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.WORKOUT_HISTORY);
       if (stored) return JSON.parse(stored);
-
-      // Seed initial sample logs for today/yesterday to show clean Android History UI
-      const todayStr = new Date().toISOString().split('T')[0];
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-      const initialLogs: WorkoutSessionLog[] = [
-        {
-          id: 'log-1',
-          date: todayStr,
-          timestamp: Date.now() - 3600000 * 2,
-          reps: 20,
-          durationSeconds: 58,
-          unlockedAppName: 'Instagram',
-          unlockedPackageName: 'com.instagram.android',
-          formAccuracy: 96,
-          caloriesBurned: 9,
-          type: 'app_unlock',
-        },
-        {
-          id: 'log-2',
-          date: todayStr,
-          timestamp: Date.now() - 3600000 * 5,
-          reps: 25,
-          durationSeconds: 72,
-          unlockedAppName: 'YouTube',
-          unlockedPackageName: 'com.google.android.youtube',
-          formAccuracy: 92,
-          caloriesBurned: 12,
-          type: 'app_unlock',
-        },
-        {
-          id: 'log-3',
-          date: yesterday,
-          timestamp: Date.now() - 86400000 - 3600000 * 4,
-          reps: 30,
-          durationSeconds: 90,
-          formAccuracy: 98,
-          caloriesBurned: 14,
-          type: 'free_workout',
-        },
-        {
-          id: 'log-4',
-          date: yesterday,
-          timestamp: Date.now() - 86400000 - 3600000 * 8,
-          reps: 20,
-          durationSeconds: 62,
-          unlockedAppName: 'Reddit',
-          unlockedPackageName: 'com.reddit.frontpage',
-          formAccuracy: 94,
-          caloriesBurned: 9,
-          type: 'app_unlock',
-        },
-      ];
-
-      localStorage.setItem(STORAGE_KEYS.WORKOUT_HISTORY, JSON.stringify(initialLogs));
-      return initialLogs;
+      return [];
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Clear all workout history & reset app statistics
+   */
+  public resetAllData(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.removeItem(STORAGE_KEYS.WORKOUT_HISTORY);
+      localStorage.removeItem(STORAGE_KEYS.UNLOCK_SESSIONS);
+      localStorage.setItem(STORAGE_KEYS.PROTECTED_APPS, JSON.stringify(DEFAULT_DEMO_APPS));
+      triggerHaptic('click');
+    } catch (e) {
+      console.error('Failed to reset data:', e);
     }
   }
 
