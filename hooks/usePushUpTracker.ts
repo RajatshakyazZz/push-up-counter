@@ -34,16 +34,16 @@ export const DEFAULT_SETTINGS: PushUpSettings = {
   showAngles: true,
   countdownSeconds: 5,
   debugMode: false,
-  minRepDurationMs: 650,
-  minAngleDelta: 35,
-  requiredConfidence: 0.45,
+  minRepDurationMs: 500,
+  minAngleDelta: 30,
+  requiredConfidence: 0.40,
 };
 
 // State machine debounce frame requirements
-const POSITION_CONFIRM_FRAMES = 5;
-const DOWN_CONFIRM_FRAMES = 3;
-const UP_CONFIRM_FRAMES = 3;
-const REP_COOLDOWN_MS = 350;
+const POSITION_CONFIRM_FRAMES = 4;
+const DOWN_CONFIRM_FRAMES = 2;
+const UP_CONFIRM_FRAMES = 2;
+const REP_COOLDOWN_MS = 250;
 
 export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
   const [settings, setSettings] = useState<PushUpSettings>({
@@ -210,25 +210,65 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
 
       // 1. INACTIVE OR PAUSED WORKOUT
       if (!statsRef.current.isActive || statsRef.current.isPaused) {
-        consecutivePositionFramesRef.current = 0;
-        consecutiveDownFramesRef.current = 0;
-        consecutiveUpFramesRef.current = 0;
+        // If explicitly paused by user, hold paused state
+        if (statsRef.current.isPaused) {
+          consecutivePositionFramesRef.current = 0;
+          consecutiveDownFramesRef.current = 0;
+          consecutiveUpFramesRef.current = 0;
+          setFormStatus('ready');
+          setFeedbackMessage('Workout paused — press Resume');
+          return;
+        }
 
+        // If inactive, check if user gets into valid pushup position to auto-start!
         if (!landmarksVisible) {
+          consecutivePositionFramesRef.current = 0;
           setFormStatus('no_person');
           setFeedbackMessage('Step into camera view');
-        } else if (!isPositionValid) {
-          setFormStatus('invalid_position');
-          setFeedbackMessage(
-            statsRef.current.isPaused
-              ? 'Workout paused'
-              : 'Press Start Workout and get into push-up position'
-          );
+          return;
+        }
+
+        if (!isPositionValid) {
+          consecutivePositionFramesRef.current = 0;
+          if (orientation === 'vertical' || !isPlankOrientation) {
+            setFormStatus('stand_down');
+            setFeedbackMessage('Get down into push-up position on the floor');
+          } else if (!analysis.areHandsSupporting) {
+            setFormStatus('hands_misaligned');
+            setFeedbackMessage('Place your hands firmly on the ground under shoulders');
+          } else {
+            setFormStatus('invalid_position');
+            setFeedbackMessage(positionInvalidReason || 'Get into push-up position');
+          }
+          return;
+        }
+
+        // Position is VALID and arms extended in plank:
+        if (elbowAngle >= upAngleThreshold - 14) {
+          consecutivePositionFramesRef.current++;
+          if (consecutivePositionFramesRef.current >= POSITION_CONFIRM_FRAMES) {
+            // Auto-activate workout hands-free!
+            consecutivePositionFramesRef.current = 0;
+            phaseRef.current = 'ready';
+            setPhase('ready');
+            setFormStatus('good_form');
+            setStats((prev) => ({
+              ...prev,
+              isActive: true,
+              isPaused: false,
+              startTime: prev.startTime || Date.now(),
+            }));
+            provideFeedback('Ready — start your push-up!', true, true);
+          } else {
+            phaseRef.current = 'position_check';
+            setPhase('position_check');
+            setFormStatus('calibrating');
+            setFeedbackMessage('Hold plank to start...');
+          }
         } else {
-          setFormStatus('ready');
-          setFeedbackMessage(
-            statsRef.current.isPaused ? 'Workout paused' : 'Press Start Workout when ready'
-          );
+          consecutivePositionFramesRef.current = 0;
+          setFormStatus('good_form');
+          setFeedbackMessage('Straighten your arms in plank to start');
         }
         return;
       }
@@ -433,8 +473,8 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
         }
 
         case 'going_up': {
-          // Check if arms reached top lockout threshold
-          if (elbowAngle >= upAngleThreshold - 4) {
+          // Check if arms reached top lockout threshold (with natural tolerance for phone camera angles)
+          if (elbowAngle >= upAngleThreshold - 10) {
             consecutiveUpFramesRef.current++;
 
             if (consecutiveUpFramesRef.current >= UP_CONFIRM_FRAMES) {
@@ -450,8 +490,8 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
 
               // Strict Rep Validation Criteria:
               // 1. Must have reached verified bottom depth (reachedBottomRef === true)
-              // 2. Range of motion delta must meet minimum (rom >= minAngleDelta, default 35°)
-              // 3. Minimum human rep duration (>= minRepDurationMs, default 650ms)
+              // 2. Range of motion delta must meet minimum (rom >= minAngleDelta, default 30°)
+              // 3. Minimum human rep duration (>= minRepDurationMs, default 500ms)
               // 4. Must be in valid push-up posture throughout
               // 5. Strict mode form threshold
               const isRepStrictlyValid =

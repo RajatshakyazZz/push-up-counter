@@ -147,12 +147,12 @@ export interface PostureValidationResult {
 export function validatePushUpPosture(
   landmarks: Landmark[],
   variant: 'standard' | 'knee' | 'incline' = 'standard',
-  requiredConfidence: number = 0.45
+  requiredConfidence: number = 0.30
 ): PostureValidationResult {
   if (!landmarks || landmarks.length < 29) {
     return {
       isPositionValid: false,
-      positionInvalidReason: 'No person detected. Position full body in frame.',
+      positionInvalidReason: 'Step into camera view',
       orientation: 'unknown',
       hipAlignmentStatus: 'invalid',
       torsoAngleWithHorizontal: 0,
@@ -166,7 +166,7 @@ export function validatePushUpPosture(
     };
   }
 
-  const getConf = (lm: Landmark | undefined) =>
+  const getConf = (lm?: Landmark | null) =>
     lm ? (lm.visibility ?? lm.presence ?? 0.6) : 0;
 
   // Extract key points
@@ -183,24 +183,13 @@ export function validatePushUpPosture(
   const lAnkle = landmarks[POSE_INDICES.LEFT_ANKLE];
   const rAnkle = landmarks[POSE_INDICES.RIGHT_ANKLE];
 
-  // 1. Landmark Confidence Verification
+  // 1. Upper Body Visibility Verification
   const shoulderConf = (getConf(lShoulder) + getConf(rShoulder)) / 2;
   const elbowConf = (getConf(lElbow) + getConf(rElbow)) / 2;
   const wristConf = (getConf(lWrist) + getConf(rWrist)) / 2;
-  const hipConf = (getConf(lHip) + getConf(rHip)) / 2;
-  const lowerConf =
-    variant === 'knee'
-      ? (getConf(lKnee) + getConf(rKnee)) / 2
-      : (getConf(lAnkle) + getConf(rAnkle) + getConf(lKnee) + getConf(rKnee)) / 4;
-
   const upperBodyConf = (shoulderConf + elbowConf + wristConf) / 3;
-  const overallConfidence =
-    (shoulderConf + elbowConf + wristConf + hipConf + lowerConf) / 5;
 
-  const landmarksVisible = upperBodyConf >= requiredConfidence;
-  const isFullBodyVisible =
-    hipConf >= requiredConfidence && lowerConf >= requiredConfidence - 0.1;
-
+  const landmarksVisible = upperBodyConf >= 0.25;
   if (!landmarksVisible) {
     return {
       isPositionValid: false,
@@ -214,28 +203,11 @@ export function validatePushUpPosture(
       landmarksVisible: false,
       isFullBodyVisible: false,
       areHandsSupporting: false,
-      confidence: overallConfidence,
+      confidence: upperBodyConf,
     };
   }
 
-  if (hipConf < 0.3) {
-    return {
-      isPositionValid: false,
-      positionInvalidReason: 'Make sure your hips and lower body are visible.',
-      orientation: 'unknown',
-      hipAlignmentStatus: 'invalid',
-      torsoAngleWithHorizontal: 0,
-      fullBodyAngleWithHorizontal: 0,
-      isPlankOrientation: false,
-      isBodyStraight: false,
-      landmarksVisible: true,
-      isFullBodyVisible: false,
-      areHandsSupporting: false,
-      confidence: overallConfidence,
-    };
-  }
-
-  // 2. Body Orientation Evaluation (Horizontal Plank vs Vertical Standing/Sitting)
+  // Calculate 2D Spans & Centers
   const midShoulder = {
     x: ((lShoulder?.x ?? 0) + (rShoulder?.x ?? 0)) / 2,
     y: ((lShoulder?.y ?? 0) + (rShoulder?.y ?? 0)) / 2,
@@ -245,46 +217,61 @@ export function validatePushUpPosture(
     y: ((lHip?.y ?? 0) + (rHip?.y ?? 0)) / 2,
   };
 
-  const lowerTarget =
-    variant === 'knee'
-      ? {
-          x: ((lKnee?.x ?? 0) + (rKnee?.x ?? 0)) / 2,
-          y: ((lKnee?.y ?? 0) + (rKnee?.y ?? 0)) / 2,
-        }
-      : {
-          x: ((lAnkle?.x ?? lKnee?.x ?? 0) + (rAnkle?.x ?? rKnee?.x ?? 0)) / 2,
-          y: ((lAnkle?.y ?? lKnee?.y ?? 0) + (rAnkle?.y ?? rKnee?.y ?? 0)) / 2,
-        };
+  const shoulderSpan = Math.abs((lShoulder?.x ?? 0) - (rShoulder?.x ?? 0));
+  const wristSpan = Math.abs((lWrist?.x ?? 0) - (rWrist?.x ?? 0));
+  const avgWristY = ((lWrist?.y ?? 0) + (rWrist?.y ?? 0)) / 2;
+  const avgShoulderY = midShoulder.y;
 
-  // Torso vector (Shoulder to Hip)
+  // Torso vector
   const torsoDx = Math.abs(midShoulder.x - midHip.x);
   const torsoDy = Math.abs(midShoulder.y - midHip.y);
   const torsoAngleWithHorizontal = Math.round(
-    (Math.atan2(torsoDy, torsoDx) * 180) / Math.PI
+    (Math.atan2(torsoDy, Math.max(0.001, torsoDx)) * 180) / Math.PI
   );
 
-  // Full body vector (Shoulder to Lower Body: Ankle/Knee)
-  const bodyDx = Math.abs(midShoulder.x - lowerTarget.x);
-  const bodyDy = Math.abs(midShoulder.y - lowerTarget.y);
-  const fullBodyAngleWithHorizontal = Math.round(
-    (Math.atan2(bodyDy, bodyDx) * 180) / Math.PI
-  );
+  // Lower Target Point (gracefully fall back to knee/hip if ankles in shadow)
+  const lLowerPoint =
+    lAnkle && getConf(lAnkle) > 0.2 ? lAnkle : lKnee && getConf(lKnee) > 0.2 ? lKnee : lHip;
+  const rLowerPoint =
+    rAnkle && getConf(rAnkle) > 0.2 ? rAnkle : rKnee && getConf(rKnee) > 0.2 ? rKnee : rHip;
+  const midLowerY = ((lLowerPoint?.y ?? 0) + (rLowerPoint?.y ?? 0)) / 2;
 
-  // In a standard pushup, torso angle is typically 0° to 45° (incline allows up to 55°).
-  // Standing upright has steep torso angle (65° to 90°) and fullBodyAngle (75° to 90°).
-  const maxTorsoAngle = variant === 'incline' ? 60 : 52;
-  const maxBodyAngle = variant === 'incline' ? 62 : 55;
+  // 2. Hand / Floor Support Verification
+  // In pushups, wrists support the body on the floor/surface:
+  // - Wrists must be vertically below or near shoulder level in screen coordinates
+  // - Wrists must not be held up near face/in mid-air (avgWristY >= 0.25)
+  const areHandsVerticallyAligned = avgWristY >= avgShoulderY - 0.08 && avgWristY >= 0.25;
+  const areHandsSupporting = areHandsVerticallyAligned;
 
-  const isPlankOrientation =
-    torsoAngleWithHorizontal <= maxTorsoAngle &&
-    fullBodyAngleWithHorizontal <= maxBodyAngle;
+  // 3. Multi-Angle Push-Up Plank vs Standing/Sitting Detection
+  // Case 1: Side Profile Plank (Camera to the side of user)
+  const isSidePlank = torsoAngleWithHorizontal <= (variant === 'incline' ? 68 : 60);
 
-  const orientation: 'horizontal' | 'vertical' | 'unknown' =
-    torsoAngleWithHorizontal <= maxTorsoAngle
-      ? 'horizontal'
-      : torsoAngleWithHorizontal >= 60
-      ? 'vertical'
-      : 'unknown';
+  // Case 2: Front View / Diagonal View Push-Up (Phone on floor looking at user)
+  // Hallmarks of front-view push-up on floor:
+  // - Hands planted wide on floor: avgWristY >= 0.35 and (wristSpan >= 0.12 or wristSpan >= 0.4 * shoulderSpan)
+  // - Shoulders are visible in upper frame supporting upper body
+  const isFrontOrDiagonalPlank =
+    areHandsSupporting &&
+    (shoulderSpan >= 0.08 || wristSpan >= 0.12) &&
+    avgWristY >= 0.35;
+
+  // Case 3: Upright Standing / Sitting Rejection
+  // Standing upright: Shoulders near top (y < 0.30), feet at bottom (y > 0.75), torso vertical (angle > 70),
+  // and hands hanging at hips (wristSpan narrow) or hands in air (avgWristY < avgShoulderY).
+  const isUprightStanding =
+    !isSidePlank &&
+    torsoAngleWithHorizontal > 70 &&
+    midShoulder.y < 0.30 &&
+    midLowerY > 0.75 &&
+    (avgWristY < avgShoulderY || wristSpan < 0.25);
+
+  const isPlankOrientation = (isSidePlank || isFrontOrDiagonalPlank) && !isUprightStanding;
+  const orientation: 'horizontal' | 'vertical' | 'unknown' = isPlankOrientation
+    ? 'horizontal'
+    : isUprightStanding || torsoAngleWithHorizontal >= 75
+    ? 'vertical'
+    : 'unknown';
 
   if (!isPlankOrientation || orientation === 'vertical') {
     return {
@@ -293,31 +280,15 @@ export function validatePushUpPosture(
       orientation,
       hipAlignmentStatus: 'invalid',
       torsoAngleWithHorizontal,
-      fullBodyAngleWithHorizontal,
+      fullBodyAngleWithHorizontal: torsoAngleWithHorizontal,
       isPlankOrientation: false,
       isBodyStraight: false,
       landmarksVisible: true,
-      isFullBodyVisible,
-      areHandsSupporting: false,
-      confidence: overallConfidence,
+      isFullBodyVisible: false,
+      areHandsSupporting,
+      confidence: upperBodyConf,
     };
   }
-
-  // 3. Supporting Hands & Wrists Relationship
-  // In pushups, wrists support the body on the floor/surface:
-  // - Wrists must be vertically below or near shoulder level in screen space (y_wrist >= y_shoulder - 0.08)
-  // - Rejects hands waving above head or in mid-air
-  const avgWristY = ((lWrist?.y ?? 0) + (rWrist?.y ?? 0)) / 2;
-  const avgShoulderY = midShoulder.y;
-
-  // If wrists are above shoulders (smaller Y in screen coords), arms are raised in air
-  const areHandsVerticallyAligned = avgWristY >= avgShoulderY - 0.08;
-
-  // Wrists should not be extremely wide (span > 0.85 screen width)
-  const wristSpan = Math.abs((lWrist?.x ?? 0) - (rWrist?.x ?? 0));
-  const areHandsSpanReasonable = wristSpan <= 0.85;
-
-  const areHandsSupporting = areHandsVerticallyAligned && areHandsSpanReasonable;
 
   if (!areHandsSupporting) {
     return {
@@ -326,22 +297,19 @@ export function validatePushUpPosture(
       orientation,
       hipAlignmentStatus: 'good',
       torsoAngleWithHorizontal,
-      fullBodyAngleWithHorizontal,
+      fullBodyAngleWithHorizontal: torsoAngleWithHorizontal,
       isPlankOrientation: true,
       isBodyStraight: true,
       landmarksVisible: true,
-      isFullBodyVisible,
+      isFullBodyVisible: false,
       areHandsSupporting: false,
-      confidence: overallConfidence,
+      confidence: upperBodyConf,
     };
   }
 
   // 4. Spine Alignment / Body Line (Shoulder - Hip - Knee/Ankle)
-  const lLower = variant === 'knee' ? lKnee : (lAnkle || lKnee);
-  const rLower = variant === 'knee' ? rKnee : (rAnkle || rKnee);
-
-  const leftSpineAngle = calculateAngle(lShoulder, lHip, lLower);
-  const rightSpineAngle = calculateAngle(rShoulder, rHip, rLower);
+  const leftSpineAngle = calculateAngle(lShoulder, lHip, lLowerPoint);
+  const rightSpineAngle = calculateAngle(rShoulder, rHip, rLowerPoint);
   const spineAngle =
     leftSpineAngle > 0 && rightSpineAngle > 0
       ? (leftSpineAngle + rightSpineAngle) / 2
@@ -350,12 +318,14 @@ export function validatePushUpPosture(
   let hipAlignmentStatus: 'good' | 'sagging' | 'piked' | 'invalid' = 'good';
   let isBodyStraight = true;
 
-  if (spineAngle < 135) {
-    hipAlignmentStatus = 'sagging';
-    isBodyStraight = false;
-  } else if (spineAngle > 205) {
-    hipAlignmentStatus = 'piked';
-    isBodyStraight = false;
+  if (isSidePlank) {
+    if (spineAngle < 125) {
+      hipAlignmentStatus = 'sagging';
+      isBodyStraight = false;
+    } else if (spineAngle > 215) {
+      hipAlignmentStatus = 'piked';
+      isBodyStraight = false;
+    }
   }
 
   let positionInvalidReason = '';
@@ -367,8 +337,7 @@ export function validatePushUpPosture(
     } else {
       positionInvalidReason = 'Lower your hips to align with your shoulders and feet';
     }
-    // Allow slight tolerance in posture gate so beginners can initiate, but flag warning
-    if (spineAngle < 125 || spineAngle > 215) {
+    if (spineAngle < 110 || spineAngle > 230) {
       isPositionValid = false;
     }
   }
@@ -379,13 +348,13 @@ export function validatePushUpPosture(
     orientation,
     hipAlignmentStatus,
     torsoAngleWithHorizontal,
-    fullBodyAngleWithHorizontal,
-    isPlankOrientation,
+    fullBodyAngleWithHorizontal: torsoAngleWithHorizontal,
+    isPlankOrientation: true,
     isBodyStraight,
     landmarksVisible: true,
-    isFullBodyVisible,
+    isFullBodyVisible: true,
     areHandsSupporting: true,
-    confidence: overallConfidence,
+    confidence: upperBodyConf,
   };
 }
 

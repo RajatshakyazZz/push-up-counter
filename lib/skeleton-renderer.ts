@@ -53,20 +53,19 @@ export function drawPoseSkeleton(
     return { x, y };
   };
 
+  const isGoodPosition = analysis.isPositionValid;
   const isDown = analysis.depthPercentage >= 90;
-  const isGoodForm = analysis.isBodyStraight && analysis.isPositionValid;
 
-  // Set line styling
-  const baseColor = !analysis.isPositionValid
-    ? '#fbbf24' // amber-400 when posture not in push-up plank
-    : isDown
-    ? '#a3e635' // lime-400 when target depth reached
-    : '#84cc16'; // lime-500 tracking color
+  // Vibrant Electric Green when in valid push-up posture (stays green throughout up/down pushups)
+  // Bright Warning Red when posture is invalid (standing, sitting, wrong angle)
+  const baseColor = isGoodPosition
+    ? (isDown ? '#a3e635' : '#22c55e') // Vibrant Electric Green / Lime-400
+    : '#ef4444'; // Bright Warning Red
 
-  const warnColor = '#f59e0b'; // amber warning if hips sag or invalid orientation
+  const glowShadowColor = isGoodPosition ? '#22c55e' : '#ef4444';
 
   // 1. Draw connections (Bones)
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 4.5;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
@@ -75,34 +74,18 @@ export function drawPoseSkeleton(
     const endLm = landmarks[endIdx];
 
     if (!startLm || !endLm) return;
-    if ((startLm.visibility ?? 1) < 0.25 || (endLm.visibility ?? 1) < 0.25) return;
+    if ((startLm.visibility ?? 1) < 0.20 || (endLm.visibility ?? 1) < 0.20) return;
 
     const start = getCoords(startLm);
     const end = getCoords(endLm);
-
-    // Dynamic color for arm vs torso
-    const isArm =
-      startIdx === POSE_INDICES.LEFT_SHOULDER ||
-      startIdx === POSE_INDICES.RIGHT_SHOULDER ||
-      startIdx === POSE_INDICES.LEFT_ELBOW ||
-      startIdx === POSE_INDICES.RIGHT_ELBOW;
 
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
 
-    if (isArm) {
-      ctx.strokeStyle = baseColor;
-      ctx.shadowColor = baseColor;
-      ctx.shadowBlur = 10;
-    } else if (!isGoodForm) {
-      ctx.strokeStyle = warnColor;
-      ctx.shadowColor = warnColor;
-      ctx.shadowBlur = 6;
-    } else {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-      ctx.shadowBlur = 0;
-    }
+    ctx.strokeStyle = baseColor;
+    ctx.shadowColor = glowShadowColor;
+    ctx.shadowBlur = isGoodPosition ? 10 : 12;
 
     ctx.stroke();
     ctx.shadowBlur = 0;
@@ -126,23 +109,23 @@ export function drawPoseSkeleton(
 
   keyNodes.forEach((idx) => {
     const lm = landmarks[idx];
-    if (!lm || (lm.visibility ?? 1) < 0.3) return;
+    if (!lm || (lm.visibility ?? 1) < 0.25) return;
 
     const { x, y } = getCoords(lm);
     const isElbow = idx === POSE_INDICES.LEFT_ELBOW || idx === POSE_INDICES.RIGHT_ELBOW;
 
     // Outer glow ring for active joints
     ctx.beginPath();
-    ctx.arc(x, y, isElbow ? 8 : 5, 0, 2 * Math.PI);
-    ctx.fillStyle = isElbow ? baseColor : '#ffffff';
-    ctx.shadowColor = isElbow ? baseColor : 'transparent';
-    ctx.shadowBlur = isElbow ? 12 : 0;
+    ctx.arc(x, y, isElbow ? 8 : 5.5, 0, 2 * Math.PI);
+    ctx.fillStyle = baseColor;
+    ctx.shadowColor = glowShadowColor;
+    ctx.shadowBlur = 12;
     ctx.fill();
 
     // Inner center point
     ctx.beginPath();
     ctx.arc(x, y, isElbow ? 3 : 2, 0, 2 * Math.PI);
-    ctx.fillStyle = '#09090b';
+    ctx.fillStyle = '#000000';
     ctx.fill();
     ctx.shadowBlur = 0;
   });

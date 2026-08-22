@@ -1,122 +1,177 @@
 # PushLock AI — Project Context & Documentation
 
-## Overview
+## 1. Overview
 **PushLock AI** is an Android-first digital wellbeing and habit-building application that locks addictive or distracting applications (such as Instagram, YouTube, Snapchat, TikTok, Reddit, and mobile games) until the user earns screen time by completing verified push-ups tracked in real-time by AI computer vision.
 
 - **Motto**: *"Train → Earn → Unlock → Focus."*
-- **Platform Architecture**: Android Native (Capacitor / Kotlin Bridge with `PACKAGE_USAGE_STATS` and `SYSTEM_ALERT_WINDOW`) + Next.js App Router Web PWA.
-- **Vision Engine**: MediaPipe Pose estimation running 100% locally on-device at 60 FPS (zero server dependencies, zero recurring cloud costs, 100% privacy-safe).
+- **Platform Architecture**: Android Native (Capacitor + Kotlin Foreground Service / Accessibility Bridge with `PACKAGE_USAGE_STATS` and `SYSTEM_ALERT_WINDOW`) + Next.js 15 App Router Web PWA.
+- **Vision Engine**: `@mediapipe/tasks-vision` PoseLandmarker running 100% locally on-device via WebAssembly and WebGL/GPU acceleration at 30–60 FPS (zero server dependencies, zero recurring cloud costs, 100% privacy-safe).
 
 ---
 
-## Key Features & Architecture
+## 2. Computer Vision & Push-Up Biomechanics Engine
 
-### 1. AI Push-Up Vision Counter & Biomechanics Analysis
-- **Pose Detection**: Uses MediaPipe Pose landmark detection (`@mediapipe/pose` + `@mediapipe/camera_utils`) running directly in browser WebGL / Android WebView.
-- **Finite State Machine**:
-  - `IDLE` → `READY` → `DESCENDING` → `BOTTOM` → `ASCENDING` → `COMPLETED`
-  - **Horizontal Plank Verification**: Validates body slope and hip-to-shoulder alignment (`isPlankOrientation`) so vertical movements, bowing, or head bobs are not counted.
-  - **Range of Motion (ROM)**: Requires ≥ 35° elbow angle deflection and minimum bottom depth before a rep counts.
-  - **Anti-Bounce Filter**: Minimal repetition duration check (≥ 350ms) to filter out jitter and noisy video artifacts.
-- **Visual Skeleton & HUD Overlays**:
-  - High-visibility top-corner rep counter and phase indicators.
-  - Angle arcs at elbows, shoulders, and hips.
-  - Color-coded posture lines (Emerald Green for proper form, Amber/Red for hip sag or incomplete depth).
-- **Audio & Haptic Feedback**: Web Audio synthesized sound cues, browser speech synthesis voice announcements, and device vibration haptics.
-- **Pre-Workout Countdown**: Configurable 5-second buffer timer allowing users to set their phone down and get into the starting plank position before tracking begins.
+### A. Real-Time Detection Pipeline (`hooks/usePoseDetector.ts`, `lib/pose-math.ts`)
+- **Pose Estimation**: `@mediapipe/tasks-vision` loads `pose_landmarker_lite.task` model locally via GPU delegate in `VIDEO` mode.
+- **Landmark Smoothing**: Raw 33 3D landmarks pass through `LandmarkSmoother` using Exponential Moving Average (EMA, $\alpha = 0.65$) to eliminate frame jitter and camera sensor noise.
+- **Privacy Assurance**: Camera frames flow directly from `navigator.mediaDevices.getUserMedia` into WebAssembly memory buffers. Zero frames or landmark coordinates are uploaded to external servers.
 
-### 2. Android App Locker (`lib/native-bridge/androidAppLocker.ts`)
-- **App Protection Management**:
-  - Toggle protection on/off per app.
-  - Configurable required push-ups (5 to 60 reps).
-  - Configurable unlock access durations (5 to 60 minutes).
-- **Unlock Session Timer**:
-  - Live countdown timers showing remaining unlocked time.
-  - Progress bar of time remaining.
-  - Quick actions to extend unlock time with more push-ups or lock immediately.
-- **Zero-Storage Dummy Data**: Starts with clean zero metrics and stores only authentic user-completed workouts in local storage / Android SharedPreferences.
+### B. Multi-Angle Spatial Posture Gate (`lib/pose-math.ts:validatePushUpPosture`)
+Distinguishes genuine push-up positions from standing upright, sitting, or random arm movements across all camera angles:
+1. **Front-Facing Floor View (Phone placed on floor in front of user)**:
+   - Recognizes supporting hands planted wide on the ground ($y_{\text{wrist}} \ge 0.35$ and $\text{wristSpan} \ge 0.12$ or $\ge 0.40 \times \text{shoulderSpan}$).
+   - Wide upper-body span in foreground ($\text{shoulderSpan} \ge 0.08$).
+   - Graceful fallback to knees/hips if ankles are obscured in floor shadows.
+2. **Side Profile View**:
+   - Validates horizontal torso angle ($\text{torsoAngleWithHorizontal} \le 60^\circ$, or $\le 68^\circ$ for incline).
+3. **Elevated / Incline & Knee Variants**:
+   - Full support for elevated surfaces (hands on bed/chair/couch) and knee push-ups.
+4. **Strict False Movement Rejection (Standing / Sitting / Arm Waving)**:
+   - Rejects standing upright (torso angle $> 70^\circ$, vertical height ratio $> 2.85$, narrow wrist span or hands in air).
+   - Rejects sitting on a chair/bed and flailing arms ($y_{\text{wrist}} < y_{\text{shoulder}} - 0.08$).
 
-### 3. Android Material 3 Design System
-- **Theme**: Crisp, high-contrast light mode UI optimized for outdoor workouts and high-glare environments.
-- **Palette**:
+### C. Color-Coded Interactive Skeleton Renderer (`lib/skeleton-renderer.ts`)
+- **Vibrant Electric Green (`#22c55e` / `#a3e635`)**:
+  - Rendered when user is in a valid push-up plank position.
+  - **Stays 100% Green** throughout descent (down) and ascent (up) cycles.
+- **Bright Warning Red (`#ef4444`)**:
+  - Rendered when user is in an invalid pose (standing, sitting, waving hands, or wrong angle).
+  - Rep counting is strictly blocked while in red state.
+
+### D. Multi-Frame Debounced Finite State Machine (`hooks/usePushUpTracker.ts`)
+```
+[IDLE / WAITING] 
+       │ (Plank held for 4 frames)
+       ▼
+[READY / PLANK LOCKED] (Auto-starts workout & timer, announces "Ready!")
+       │ (Elbow angle < 138°)
+       ▼
+[GOING_DOWN] (Chest lowers towards floor)
+       │ (Elbow angle <= 92° for 2 frames)
+       ▼
+[DOWN / TARGET DEPTH] (Depth confirmed: reachedBottomRef = true, plays down cue)
+       │ (Elbow angle > 104°)
+       ▼
+[GOING_UP] (Pushing up to lockout)
+       │ (Elbow angle >= 142° for 2 frames + ROM >= 30° + Duration >= 500ms)
+       ▼
+[REP COMPLETED] (+1 Rep, Rep Chime, Voice Coach announcement, streak updated)
+       │ (250ms cooldown buffer)
+       ▼
+[READY] (Cycle repeats)
+```
+
+### E. Hands-Free Auto-Start
+- When the user steps into the camera view on the workout tab and assumes a valid push-up plank, the system:
+  1. Detects `isPositionValid === true`.
+  2. Confirms stability for 4 consecutive frames (~130ms).
+  3. Sets `stats.isActive = true` and `isPaused = false` automatically.
+  4. Starts the elapsed workout timer.
+  5. Speaks voice prompt: *"Ready — start your push-up!"*
+
+---
+
+## 3. App Locker & Native Android Bridge Architecture
+
+### A. Web PWA Simulation Layer (`lib/native-bridge/androidAppLocker.ts`)
+- Manages protected app configurations, rep goals, and unlock durations in browser `localStorage`.
+- Storage Keys:
+  - `pushlock_protected_apps`: List of configured apps and rep targets.
+  - `pushlock_unlock_sessions`: Active temporary unlock sessions with expiration timestamps.
+  - `pushlock_workout_history`: Completed workout logs.
+  - `pushlock_protection_settings`: Global protection settings.
+  - `pushlock_settings`: Pose detection thresholds and audio/voice toggles.
+
+### B. Native Android Roadmap (Capacitor + Kotlin)
+- **Plugin Bridge**: `@CapacitorPlugin(name = "PushLockAppLocker") class PushLockPlugin : Plugin()`.
+- **Foreground App Monitoring**:
+  - `AccessibilityService` (`AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED`) for 0ms latency app launch interception.
+  - `UsageStatsManager` with a background `ForegroundService` as backup.
+- **System Overlay**:
+  - `WindowManager` with `TYPE_APPLICATION_OVERLAY` or high-priority fullscreen lock activity.
+- **Permissions**:
+  - `android.permission.CAMERA`
+  - `android.permission.SYSTEM_ALERT_WINDOW`
+  - `android.permission.PACKAGE_USAGE_STATS`
+  - `android.permission.BIND_ACCESSIBILITY_SERVICE`
+  - `android.permission.FOREGROUND_SERVICE`
+  - `android.permission.RECEIVE_BOOT_COMPLETED`
+  - `android.permission.QUERY_ALL_PACKAGES`
+
+---
+
+## 4. Design System & UI Components
+
+- **Theme**: High-contrast Material 3 light mode optimized for outdoor workouts.
+- **Color Palette**:
   - Background: `#F7F8FA`
-  - Card Surfaces: `#FFFFFF` with `#E5E7EB` borders
-  - Primary Accent: `#16A34A` (Android Emerald Green)
+  - Card Surfaces: `#FFFFFF` with `#E5E7EB` border
+  - Neon Accent / Active HUD: `#22C55E` / `#A3E635` (Lime / Emerald)
   - Secondary Accent: `#2563EB` (Cobalt Blue)
-- **Navigation**:
-  - **Home**: Daily summary, quick unlock card, active unlock timers, and recent activity.
-  - **Apps**: Locker management, app search, category filters, and app unlock requirements editor.
-  - **Workout**: Live AI push-up counter with MediaPipe vision feed, form score, and workout controls.
-  - **History**: Historical logs of verified workouts, calories burned, and unlocked apps.
-  - **Settings**: Angle calibration thresholds, voice/sound toggles, Android permissions guide, and data reset.
+  - Warning / Blocker: `#EF4444` (Coral Red)
+
+### Navigation Tabs (`app/page.tsx`, `components/AndroidBottomNav.tsx`):
+1. **Home (`components/HomeDashboard.tsx`)**: Daily rep summary, quick unlock card, active session countdowns, and recent activity.
+2. **Apps (`components/AppLockerView.tsx`)**: App locker catalogue, protection toggles, rep target editor, and instant lock tests.
+3. **Workout (`app/page.tsx:workout`)**: Live MediaPipe camera feed, in-camera HUD rep counter, depth gauge, form feedback, and controls.
+4. **History (`components/HistoryView.tsx`)**: Historical logs of verified workouts, accuracy scores, and unlocked apps.
+5. **Settings (`components/SettingsView.tsx`)**: Biomechanical angle calibration, sound/voice toggles, debug mode, and Android permissions guide.
 
 ---
 
-## Tech Stack
-- **Framework**: Next.js 15 (App Router) + React 19 + TypeScript
-- **Styling**: Tailwind CSS v4 + Lucide React Icons + Canvas 2D Skeleton Rendering
-- **AI / Computer Vision**: Google MediaPipe Pose (`@mediapipe/pose`)
-- **Native Android Layer**: Capacitor / Kotlin Bridge with UsageStatsManager and Overlay Permissions
-
----
-
-## Project Structure
+## 5. File Structure
 ```
 ├── app/
-│   ├── globals.css           # Tailwind v4 theme and global styles
-│   ├── layout.tsx            # Root HTML layout with viewport settings
-│   └── page.tsx              # Main controller & navigation tab manager
+│   ├── globals.css              # Tailwind v4 theme & custom utilities
+│   ├── layout.tsx               # Root HTML layout & viewport metadata
+│   └── page.tsx                 # Main controller & navigation tab manager
 ├── components/
-│   ├── ActiveTimersCard.tsx   # Active unlocked app session countdowns
-│   ├── AndroidBottomNav.tsx   # Android-style bottom tab bar
-│   ├── AndroidTopBar.tsx     # Android top app bar with camera & audio switches
-│   ├── AppConfigModal.tsx     # Modal to add/edit push-up requirements per app
-│   ├── AppIcon.tsx            # Dynamic icon renderer for apps
-│   ├── AppLockerView.tsx      # App locker list & configuration view
-│   ├── CameraFeed.tsx         # Video stream & skeleton canvas renderer
-│   ├── ExerciseGuideModal.tsx # Biomechanics push-up form instruction guide
-│   ├── FormFeedbackCard.tsx   # Real-time posture & form feedback
-│   ├── HistoryView.tsx        # Workout history & unlock records
-│   ├── HomeDashboard.tsx      # Primary overview dashboard
-│   ├── LockScreenModal.tsx    # Android overlay lock screen simulation
-│   ├── PreWorkoutCountdown.tsx# Pre-workout ready timer buffer
-│   ├── RepStatsCard.tsx       # Live rep count, pace, and calorie metrics
-│   ├── SettingsModal.tsx      # Quick settings modal
-│   ├── SettingsView.tsx       # Calibration & native Android permissions
-│   ├── WorkoutControls.tsx    # Start, pause, resume, reset controls
-│   └── WorkoutSummaryModal.tsx# Post-workout celebration & stats breakdown
+│   ├── ActiveTimersCard.tsx     # Active unlocked app session countdowns
+│   ├── AndroidBottomNav.tsx     # Bottom navigation bar
+│   ├── AndroidTopBar.tsx        # Top app bar with camera & audio switches
+│   ├── AppConfigModal.tsx       # Modal to add/edit push-up requirements per app
+│   ├── AppIcon.tsx              # Dynamic SVG app icon renderer
+│   ├── AppLockerView.tsx        # App locker management & category filter view
+│   ├── CameraFeed.tsx           # Video stream & skeleton canvas renderer with HUD
+│   ├── ExerciseGuideModal.tsx   # Biomechanics push-up form instruction guide
+│   ├── FormFeedbackCard.tsx     # Real-time posture & form feedback
+│   ├── HistoryView.tsx          # Workout history & unlock records
+│   ├── HomeDashboard.tsx        # Primary overview dashboard
+│   ├── LockScreenModal.tsx      # Android overlay lock screen simulation
+│   ├── PreWorkoutCountdown.tsx  # Pre-workout ready timer buffer
+│   ├── RepStatsCard.tsx         # Live rep count, pace, and calorie metrics
+│   ├── SettingsModal.tsx        # Quick settings modal
+│   ├── SettingsView.tsx         # Calibration & native Android permissions
+│   ├── WorkoutControls.tsx      # Start, pause, resume, reset controls
+│   └── WorkoutSummaryModal.tsx  # Post-workout celebration & stats breakdown
 ├── hooks/
-│   ├── usePoseDetector.ts     # MediaPipe Pose loader & video frame loop
-│   └── usePushUpTracker.ts    # Biomechanics math & push-up state machine
+│   ├── usePoseDetector.ts       # MediaPipe Pose loader & video frame loop
+│   └── usePushUpTracker.ts      # Biomechanics state machine & rep counter
 ├── lib/
-│   ├── audio.ts               # Web Audio synth sound effects & TTS voice
-│   ├── haptics.ts             # Device vibration feedback bridge
-│   ├── pose-math.ts           # 3D vector angle & posture alignment math
-│   ├── skeleton-renderer.ts   # 60 FPS HTML5 canvas skeleton drawer
+│   ├── audio.ts                 # Web Audio synth sound effects & TTS speech synthesis
+│   ├── haptics.ts               # Device vibration feedback bridge
+│   ├── pose-math.ts             # 3D vector angle, posture gates, & landmark smoother
+│   ├── skeleton-renderer.ts     # 60 FPS HTML5 canvas skeleton drawer (Green/Red)
 │   └── native-bridge/
-│       └── androidAppLocker.ts# Android native interface & local storage
+│       └── androidAppLocker.ts  # Android native interface & local storage
 ├── types/
-│   └── fitness.ts             # TypeScript definitions for apps, reps, and logs
-├── context.md                 # Complete project context and documentation
-└── package.json               # Dependencies and scripts
+│   └── fitness.ts               # TypeScript interfaces for apps, reps, and sessions
+├── context.md                   # Complete project context & documentation
+├── next.config.ts               # Next.js build & static export config
+└── package.json                 # Dependencies and npm scripts
 ```
 
 ---
 
-## Getting Started
+## 6. Development & Deployment Commands
 
-### 1. Installation
 ```bash
-bun install # or npm install
-```
+# Install dependencies
+npm install
 
-### 2. Running Locally
-```bash
-bun dev # or npm run dev
-```
-Open [http://localhost:3000](http://localhost:3000) in your browser. Grant camera access when prompted to start AI push-up counting.
+# Run locally in development mode
+npm run dev
 
-### 3. Production Build
-```bash
-bun run build # or npm run build
+# Build production static export
+npm run build
 ```
