@@ -78,7 +78,9 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
 - **Framework**: `@capacitor/core`, `@capacitor/cli`, `@capacitor/android` v8.5.0.
 - **Config**: `capacitor.config.ts` (appId: `com.pushlock.ai`, appName: `PushLock AI`, webDir: `out`).
 - **Static Export**: Next.js 15 configured with `output: 'export'` and `images.unoptimized: true` generating standalone assets into `out/` and synced to `android/app/src/main/assets/public`.
-- **Native Android Structure**: Android Gradle project initialized in `/android` targeting Android SDK with full Capacitor webview bridge.
+- **Native Android Structure**: Android Gradle project initialized in `/android` targeting Android SDK 36, Java 21, and AndroidX libraries.
+- **Camera Permission**: Added `<uses-permission android:name="android.permission.CAMERA" />` in `android/app/src/main/AndroidManifest.xml` for real-time video capture in Capacitor WebView.
+- **Debug APK Location**: `android/app/build/outputs/apk/debug/app-debug.apk` (4.4 MB).
 
 ### C. Native Android Roadmap (Next Steps)
 - **Plugin Bridge**: `@CapacitorPlugin(name = "PushLockAppLocker") class PushLockPlugin : Plugin()`.
@@ -88,7 +90,7 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
 - **System Overlay**:
   - `WindowManager` with `TYPE_APPLICATION_OVERLAY` or high-priority fullscreen lock activity.
 - **Permissions**:
-  - `android.permission.CAMERA`
+  - `android.permission.CAMERA` (Configured)
   - `android.permission.SYSTEM_ALERT_WINDOW`
   - `android.permission.PACKAGE_USAGE_STATS`
   - `android.permission.BIND_ACCESSIBILITY_SERVICE`
@@ -119,6 +121,15 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
 
 ## 5. File Structure
 ```
+├── android/                     # Native Android Capacitor Project
+│   ├── app/
+│   │   ├── build.gradle         # Application gradle build file (appId: com.pushlock.ai)
+│   │   ├── build/outputs/apk/debug/app-debug.apk # Generated Debug APK
+│   │   └── src/main/
+│   │       ├── AndroidManifest.xml # Permissions (CAMERA) & Activities
+│   │       └── assets/public/   # Synced Next.js production build assets
+│   ├── build.gradle             # Root gradle build configuration
+│   └── variables.gradle         # Android SDK & library versions
 ├── app/
 │   ├── globals.css              # Tailwind v4 theme & custom utilities
 │   ├── layout.tsx               # Root HTML layout & viewport metadata
@@ -154,6 +165,7 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
 │       └── androidAppLocker.ts  # Android native interface & local storage
 ├── types/
 │   └── fitness.ts               # TypeScript interfaces for apps, reps, and sessions
+├── capacitor.config.ts          # Capacitor App configuration
 ├── context.md                   # Complete project context & documentation
 ├── next.config.ts               # Next.js build & static export config
 └── package.json                 # Dependencies and npm scripts
@@ -172,4 +184,16 @@ npm run dev
 
 # Build production static export
 npm run build
+
+# Sync web assets to Capacitor Android project
+npm run cap:sync
+
+# Open Android project in Android Studio
+npm run cap:open
+
+# Build Android Debug APK via CLI
+cd android && export JAVA_HOME="$HOME/jdk-21/Contents/Home" && ./gradlew assembleDebug
+
+# Install Debug APK to connected Android device
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
