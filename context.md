@@ -74,7 +74,13 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
   - `pushlock_protection_settings`: Global protection settings.
   - `pushlock_settings`: Pose detection thresholds and audio/voice toggles.
 
-### B. Native Android Roadmap (Capacitor + Kotlin)
+### B. Native Android Platform (Capacitor 8.5.0)
+- **Framework**: `@capacitor/core`, `@capacitor/cli`, `@capacitor/android` v8.5.0.
+- **Config**: `capacitor.config.ts` (appId: `com.pushlock.ai`, appName: `PushLock AI`, webDir: `out`).
+- **Static Export**: Next.js 15 configured with `output: 'export'` and `images.unoptimized: true` generating standalone assets into `out/` and synced to `android/app/src/main/assets/public`.
+- **Native Android Structure**: Android Gradle project initialized in `/android` targeting Android SDK with full Capacitor webview bridge.
+
+### C. Native Android Roadmap (Next Steps)
 - **Plugin Bridge**: `@CapacitorPlugin(name = "PushLockAppLocker") class PushLockPlugin : Plugin()`.
 - **Foreground App Monitoring**:
   - `AccessibilityService` (`AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED`) for 0ms latency app launch interception.

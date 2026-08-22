@@ -2,6 +2,7 @@ import type {NextConfig} from 'next';
 import path from 'path';
 
 const nextConfig: NextConfig = {
+  output: 'export',
   reactStrictMode: true,
   outputFileTracingRoot: path.join(__dirname),
   eslint: {
@@ -10,8 +11,8 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  // Allow access to remote image placeholder.
   images: {
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',
