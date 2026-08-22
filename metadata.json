@@ -1,0 +1,6 @@
+{
+  "name": "PushLock AI",
+  "description": "Android-first app protection & digital wellbeing system that unlocks distracting apps only after completing verified AI push-ups.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
