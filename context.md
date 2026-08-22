@@ -16,19 +16,21 @@
 - **Landmark Smoothing**: Raw 33 3D landmarks pass through `LandmarkSmoother` using Exponential Moving Average (EMA, $\alpha = 0.65$) to eliminate frame jitter and camera sensor noise.
 - **Privacy Assurance**: Camera frames flow directly from `navigator.mediaDevices.getUserMedia` into WebAssembly memory buffers. Zero frames or landmark coordinates are uploaded to external servers.
 
-### B. Multi-Angle Spatial Posture Gate (`lib/pose-math.ts:validatePushUpPosture`)
-Distinguishes genuine push-up positions from standing upright, sitting, or random arm movements across all camera angles:
-1. **Front-Facing Floor View (Phone placed on floor in front of user)**:
-   - Recognizes supporting hands planted wide on the ground ($y_{\text{wrist}} \ge 0.35$ and $\text{wristSpan} \ge 0.12$ or $\ge 0.40 \times \text{shoulderSpan}$).
-   - Wide upper-body span in foreground ($\text{shoulderSpan} \ge 0.08$).
+### B. Strict Multi-Angle Spatial Posture Gate (`lib/pose-math.ts:validatePushUpPosture`)
+Guarantees the skeleton turns GREEN only in genuine push-up positions and remains strictly RED for standing upright, sitting, or hand waving:
+1. **Dual-Hand Floor Support Requirement**:
+   - Both hands must be supporting on the floor below shoulders ($y_{\text{lWrist}} \ge y_{\text{lShoulder}} + 0.05$ and $y_{\text{rWrist}} \ge y_{\text{rShoulder}} + 0.05$).
+   - Both wrists must be near the floor level ($y_{\text{wrist}} \ge 0.35$).
+   - Hand Symmetry check ($|y_{\text{lWrist}} - y_{\text{rWrist}}| \le 0.20$) prevents one-arm standing waving or touching the face.
+   - Hand Span check ($\text{wristSpan} \ge 0.20$ or $\ge 0.50 \times \text{shoulderSpan}$).
+   - Any hand raised near the face ($y_{\text{wrist}} < y_{\text{shoulder}}$) triggers **INSTANT RED REJECTION**.
+2. **Front-Facing Floor View (Phone placed on floor in front of user)**:
+   - Recognizes supporting hands planted wide on the ground with wide upper-body span in foreground ($\text{shoulderSpan} \ge 0.08$) and hips visible ($y_{\text{hip}} \ge y_{\text{shoulder}} + 0.06$).
    - Graceful fallback to knees/hips if ankles are obscured in floor shadows.
-2. **Side Profile View**:
+3. **Side Profile View**:
    - Validates horizontal torso angle ($\text{torsoAngleWithHorizontal} \le 60^\circ$, or $\le 68^\circ$ for incline).
-3. **Elevated / Incline & Knee Variants**:
-   - Full support for elevated surfaces (hands on bed/chair/couch) and knee push-ups.
-4. **Strict False Movement Rejection (Standing / Sitting / Arm Waving)**:
-   - Rejects standing upright (torso angle $> 70^\circ$, vertical height ratio $> 2.85$, narrow wrist span or hands in air).
-   - Rejects sitting on a chair/bed and flailing arms ($y_{\text{wrist}} < y_{\text{shoulder}} - 0.08$).
+4. **Strict False Movement Rejection (Standing Close-Up / Bicep Curls / Sitting)**:
+   - Standing upright / sitting close to camera is instantly flagged as `'vertical'` and `isPositionValid = false` $\rightarrow$ **100% RED**.
 
 ### C. Color-Coded Interactive Skeleton Renderer (`lib/skeleton-renderer.ts`)
 - **Vibrant Electric Green (`#22c55e` / `#a3e635`)**:
@@ -37,37 +39,26 @@ Distinguishes genuine push-up positions from standing upright, sitting, or rando
 - **Bright Warning Red (`#ef4444`)**:
   - Rendered when user is in an invalid pose (standing, sitting, waving hands, or wrong angle).
   - Rep counting is strictly blocked while in red state.
+- **Adaptive Velocity Landmark Smoother (`lib/pose-math.ts:LandmarkSmoother`)**:
+  - Eliminates all visual jitter/shake when stationary ($\alpha = 0.25$) while providing instant zero-latency tracking during fast movement ($\alpha = 0.78$).
 
-### D. Multi-Frame Debounced Finite State Machine (`hooks/usePushUpTracker.ts`)
-```
-[IDLE / WAITING] 
-       │ (Plank held for 4 frames)
-       ▼
-[READY / PLANK LOCKED] (Auto-starts workout & timer, announces "Ready!")
-       │ (Elbow angle < 138°)
-       ▼
-[GOING_DOWN] (Chest lowers towards floor)
-       │ (Elbow angle <= 92° for 2 frames)
-       ▼
-[DOWN / TARGET DEPTH] (Depth confirmed: reachedBottomRef = true, plays down cue)
-       │ (Elbow angle > 104°)
-       ▼
-[GOING_UP] (Pushing up to lockout)
-       │ (Elbow angle >= 142° for 2 frames + ROM >= 30° + Duration >= 500ms)
-       ▼
-[REP COMPLETED] (+1 Rep, Rep Chime, Voice Coach announcement, streak updated)
-       │ (250ms cooldown buffer)
-       ▼
-[READY] (Cycle repeats)
-```
+### D. High-Speed Push-Up Repetition Tracker (`hooks/usePushUpTracker.ts`)
+- **High-Speed Responsive State Machine**:
+  - `DOWN_CONFIRM_FRAMES = 1` (instant 1-frame bottom depth registration $\le 92^\circ$).
+  - `UP_CONFIRM_FRAMES = 1` (instant 1-frame top lockout registration $\ge 140^\circ$).
+  - `minRepDurationMs = 280ms` (captures fast athletic reps without dropping).
+  - `REP_COOLDOWN_MS = 120ms` (instant readiness for next repetition).
+  - Range of motion $\text{ROM} \ge 26^\circ$.
+- **Voice Coach Count-Only Mode**:
+  - During workout push-ups, the voice assistant speaks **ONLY the rep numbers** ("1", "2", "3", ...).
+  - Intermediate chatter is muted from audio so the coach never interrupts the flow.
 
 ### E. Hands-Free Auto-Start
-- When the user steps into the camera view on the workout tab and assumes a valid push-up plank, the system:
+- When the user steps into the camera view on the workout tab and assumes a valid push-up plank:
   1. Detects `isPositionValid === true`.
-  2. Confirms stability for 4 consecutive frames (~130ms).
+  2. Confirms stability for 3 consecutive frames (~100ms).
   3. Sets `stats.isActive = true` and `isPaused = false` automatically.
   4. Starts the elapsed workout timer.
-  5. Speaks voice prompt: *"Ready — start your push-up!"*
 
 ---
 

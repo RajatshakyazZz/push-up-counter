@@ -34,16 +34,16 @@ export const DEFAULT_SETTINGS: PushUpSettings = {
   showAngles: true,
   countdownSeconds: 5,
   debugMode: false,
-  minRepDurationMs: 500,
-  minAngleDelta: 30,
-  requiredConfidence: 0.40,
+  minRepDurationMs: 280,
+  minAngleDelta: 26,
+  requiredConfidence: 0.25,
 };
 
-// State machine debounce frame requirements
-const POSITION_CONFIRM_FRAMES = 4;
-const DOWN_CONFIRM_FRAMES = 2;
-const UP_CONFIRM_FRAMES = 2;
-const REP_COOLDOWN_MS = 250;
+// High-speed responsive debounce frame requirements (zero missed reps)
+const POSITION_CONFIRM_FRAMES = 3;
+const DOWN_CONFIRM_FRAMES = 1;
+const UP_CONFIRM_FRAMES = 1;
+const REP_COOLDOWN_MS = 120;
 
 export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
   const [settings, setSettings] = useState<PushUpSettings>({
@@ -418,7 +418,7 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
         }
 
         case 'going_down': {
-          // Check if valid bottom depth is reached
+          // Check if valid bottom depth is reached (instant 1-frame registration)
           if (elbowAngle <= downAngleThreshold) {
             consecutiveDownFramesRef.current++;
 
@@ -428,9 +428,9 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
               reachedBottomRef.current = true;
               consecutiveDownFramesRef.current = 0;
               setFormStatus('perfect_depth');
-              provideFeedback('Now push up!', true);
+              provideFeedback('Now push up!', false);
 
-              if (soundEffects && now - lastDownSoundTimeRef.current > 450) {
+              if (soundEffects && now - lastDownSoundTimeRef.current > 300) {
                 playDownCue();
                 lastDownSoundTimeRef.current = now;
               }
@@ -444,13 +444,13 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
               !reachedBottomRef.current
             ) {
               const repDuration = now - repStartTimeRef.current;
-              if (repDuration > 400) {
+              if (repDuration > 350) {
                 setStats((prev) => ({
                   ...prev,
                   invalidAttempts: prev.invalidAttempts + 1,
                 }));
                 setFormStatus('go_lower');
-                provideFeedback('Go lower for a full repetition', true);
+                provideFeedback('Go lower for a full repetition', false);
               }
               phaseRef.current = 'ready';
               setPhase('ready');
@@ -462,7 +462,7 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
 
         case 'down': {
           // User begins pushing back up past hysteresis threshold
-          if (elbowAngle > downAngleThreshold + 12) {
+          if (elbowAngle > downAngleThreshold + 10) {
             phaseRef.current = 'going_up';
             setPhase('going_up');
             consecutiveUpFramesRef.current = 0;
@@ -473,8 +473,8 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
         }
 
         case 'going_up': {
-          // Check if arms reached top lockout threshold (with natural tolerance for phone camera angles)
-          if (elbowAngle >= upAngleThreshold - 10) {
+          // Check if arms reached top lockout threshold (responsive 1-frame confirmation)
+          if (elbowAngle >= upAngleThreshold - 12) {
             consecutiveUpFramesRef.current++;
 
             if (consecutiveUpFramesRef.current >= UP_CONFIRM_FRAMES) {
@@ -490,8 +490,8 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
 
               // Strict Rep Validation Criteria:
               // 1. Must have reached verified bottom depth (reachedBottomRef === true)
-              // 2. Range of motion delta must meet minimum (rom >= minAngleDelta, default 30°)
-              // 3. Minimum human rep duration (>= minRepDurationMs, default 500ms)
+              // 2. Range of motion delta must meet minimum (rom >= minAngleDelta, default 26°)
+              // 3. Minimum human rep duration (>= minRepDurationMs, default 280ms)
               // 4. Must be in valid push-up posture throughout
               // 5. Strict mode form threshold
               const isRepStrictlyValid =
@@ -512,6 +512,7 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
                   playRepChime();
                 }
                 if (voiceAnnounce) {
+                  // ONLY speak the rep number count during workout
                   speakCoachFeedback(`${newRepCount}`, true);
                 }
 

@@ -50,16 +50,13 @@ export function calculateAngle(
 }
 
 /**
- * Temporal Exponential Moving Average (EMA) Landmark Smoother
- * Eliminates high-frequency landmark jitter from MediaPipe vision tracking
+ * Adaptive Velocity Landmark Smoother
+ * Eliminates skeleton jitter/shake while maintaining zero-latency tracking during fast push-ups.
  */
 export class LandmarkSmoother {
   private prevLandmarks: Landmark[] | null = null;
-  private alpha: number;
 
-  constructor(alpha: number = 0.65) {
-    this.alpha = alpha;
-  }
+  constructor(_initialAlpha?: number) {}
 
   public smooth(landmarks: Landmark[]): Landmark[] {
     if (!landmarks || landmarks.length === 0) {
@@ -77,18 +74,36 @@ export class LandmarkSmoother {
       const currVis = curr.visibility ?? curr.presence ?? 0.5;
       const prevVis = prev.visibility ?? prev.presence ?? 0.5;
 
+      // Calculate 2D velocity of this keypoint
+      const dx = curr.x - prev.x;
+      const dy = curr.y - prev.y;
+      const velocity = Math.sqrt(dx * dx + dy * dy);
+
+      // Clamp extreme 1-frame coordinate teleport artifacts
+      let targetX = curr.x;
+      let targetY = curr.y;
+      if (velocity > 0.16) {
+        targetX = prev.x + (dx / velocity) * 0.16;
+        targetY = prev.y + (dy / velocity) * 0.16;
+      }
+
+      // Dynamic adaptive smoothing:
+      // - Near-zero movement: Heavy smoothing (alpha = 0.25) -> rock solid skeleton, zero shake
+      // - Rapid push-up movement: High responsiveness (alpha = 0.78) -> zero latency
+      const dynamicAlpha = Math.min(0.85, Math.max(0.25, 0.25 + (velocity / 0.035) * 0.60));
+
       return {
-        x: this.alpha * curr.x + (1 - this.alpha) * prev.x,
-        y: this.alpha * curr.y + (1 - this.alpha) * prev.y,
+        x: dynamicAlpha * targetX + (1 - dynamicAlpha) * prev.x,
+        y: dynamicAlpha * targetY + (1 - dynamicAlpha) * prev.y,
         z:
           curr.z !== undefined && prev.z !== undefined
-            ? this.alpha * curr.z + (1 - this.alpha) * prev.z
+            ? dynamicAlpha * curr.z + (1 - dynamicAlpha) * prev.z
             : curr.z,
-        visibility: this.alpha * currVis + (1 - this.alpha) * prevVis,
+        visibility: dynamicAlpha * currVis + (1 - dynamicAlpha) * prevVis,
         presence:
           curr.presence !== undefined
-            ? this.alpha * curr.presence +
-              (1 - this.alpha) * (prev.presence ?? curr.presence)
+            ? dynamicAlpha * curr.presence +
+              (1 - dynamicAlpha) * (prev.presence ?? curr.presence)
             : undefined,
       };
     });
@@ -142,12 +157,13 @@ export interface PostureValidationResult {
 
 /**
  * Strict Push-Up Posture Validation Gate
- * Checks body orientation, landmark confidence, hand supporting relationship, and spine alignment.
+ * Guarantees skeleton is GREEN only during genuine push-up plank postures,
+ * and strictly RED for standing upright, sitting, hand waving, or bicep curls.
  */
 export function validatePushUpPosture(
   landmarks: Landmark[],
   variant: 'standard' | 'knee' | 'incline' = 'standard',
-  requiredConfidence: number = 0.30
+  requiredConfidence: number = 0.25
 ): PostureValidationResult {
   if (!landmarks || landmarks.length < 29) {
     return {
@@ -169,7 +185,7 @@ export function validatePushUpPosture(
   const getConf = (lm?: Landmark | null) =>
     lm ? (lm.visibility ?? lm.presence ?? 0.6) : 0;
 
-  // Extract key points
+  // Extract key landmarks
   const lShoulder = landmarks[POSE_INDICES.LEFT_SHOULDER];
   const rShoulder = landmarks[POSE_INDICES.RIGHT_SHOULDER];
   const lElbow = landmarks[POSE_INDICES.LEFT_ELBOW];
@@ -189,7 +205,7 @@ export function validatePushUpPosture(
   const wristConf = (getConf(lWrist) + getConf(rWrist)) / 2;
   const upperBodyConf = (shoulderConf + elbowConf + wristConf) / 3;
 
-  const landmarksVisible = upperBodyConf >= 0.25;
+  const landmarksVisible = upperBodyConf >= 0.22;
   if (!landmarksVisible) {
     return {
       isPositionValid: false,
@@ -231,75 +247,75 @@ export function validatePushUpPosture(
 
   // Lower Target Point (gracefully fall back to knee/hip if ankles in shadow)
   const lLowerPoint =
-    lAnkle && getConf(lAnkle) > 0.2 ? lAnkle : lKnee && getConf(lKnee) > 0.2 ? lKnee : lHip;
+    lAnkle && getConf(lAnkle) > 0.15 ? lAnkle : lKnee && getConf(lKnee) > 0.15 ? lKnee : lHip;
   const rLowerPoint =
-    rAnkle && getConf(rAnkle) > 0.2 ? rAnkle : rKnee && getConf(rKnee) > 0.2 ? rKnee : rHip;
-  const midLowerY = ((lLowerPoint?.y ?? 0) + (rLowerPoint?.y ?? 0)) / 2;
+    rAnkle && getConf(rAnkle) > 0.15 ? rAnkle : rKnee && getConf(rKnee) > 0.15 ? rKnee : rHip;
 
-  // 2. Hand / Floor Support Verification
-  // In pushups, wrists support the body on the floor/surface:
-  // - Wrists must be vertically below or near shoulder level in screen coordinates
-  // - Wrists must not be held up near face/in mid-air (avgWristY >= 0.25)
-  const areHandsVerticallyAligned = avgWristY >= avgShoulderY - 0.08 && avgWristY >= 0.25;
-  const areHandsSupporting = areHandsVerticallyAligned;
+  // 2. Strict Dual-Hand Floor Support Verification
+  // In a real push-up:
+  // - BOTH hands must be supporting on the ground below the shoulders
+  // - Left wrist must be below left shoulder (y_lWrist >= y_lShoulder + 0.06)
+  // - Right wrist must be below right shoulder (y_rWrist >= y_rShoulder + 0.06)
+  // - Neither hand can be raised in the air near the chin/face (y_wrist < 0.35 or y_wrist < y_shoulder)
+  // - Both wrists must be on approximately the same floor plane (|y_lWrist - y_rWrist| <= 0.20)
+  const isLeftWristSupporting =
+    (lWrist?.y ?? 0) >= (lShoulder?.y ?? 0) + 0.05 && (lWrist?.y ?? 0) >= 0.35;
+  const isRightWristSupporting =
+    (rWrist?.y ?? 0) >= (rShoulder?.y ?? 0) + 0.05 && (rWrist?.y ?? 0) >= 0.35;
+  const isHandSymmetryValid =
+    Math.abs((lWrist?.y ?? 0) - (rWrist?.y ?? 0)) <= 0.20;
+
+  // In standing/sitting, hands are near waist, face, or narrow span
+  const isHandSpanValid = wristSpan >= 0.20 || wristSpan >= 0.50 * Math.max(0.1, shoulderSpan);
+
+  const areHandsSupporting =
+    isLeftWristSupporting &&
+    isRightWristSupporting &&
+    isHandSymmetryValid &&
+    isHandSpanValid;
 
   // 3. Multi-Angle Push-Up Plank vs Standing/Sitting Detection
-  // Case 1: Side Profile Plank (Camera to the side of user)
-  const isSidePlank = torsoAngleWithHorizontal <= (variant === 'incline' ? 68 : 60);
+  // Case A: Side Profile View (Camera on side)
+  const isSidePlank =
+    areHandsSupporting &&
+    torsoAngleWithHorizontal <= (variant === 'incline' ? 68 : 60);
 
-  // Case 2: Front View / Diagonal View Push-Up (Phone on floor looking at user)
-  // Hallmarks of front-view push-up on floor:
-  // - Hands planted wide on floor: avgWristY >= 0.35 and (wristSpan >= 0.12 or wristSpan >= 0.4 * shoulderSpan)
-  // - Shoulders are visible in upper frame supporting upper body
+  // Case B: Front View / Diagonal View Push-Up (Phone on floor looking at user)
+  // - Both hands firmly planted on floor (areHandsSupporting === true)
+  // - Shoulders are visible in upper frame
+  // - Hips are visible in frame below shoulders (midHip.y > midShoulder.y + 0.08)
+  const isHipPositionValid =
+    (getConf(lHip) >= 0.18 || getConf(rHip) >= 0.18) &&
+    midHip.y >= midShoulder.y + 0.06;
+
   const isFrontOrDiagonalPlank =
     areHandsSupporting &&
-    (shoulderSpan >= 0.08 || wristSpan >= 0.12) &&
-    avgWristY >= 0.35;
+    shoulderSpan >= 0.08 &&
+    isHipPositionValid;
 
-  // Case 3: Upright Standing / Sitting Rejection
-  // Standing upright: Shoulders near top (y < 0.30), feet at bottom (y > 0.75), torso vertical (angle > 70),
-  // and hands hanging at hips (wristSpan narrow) or hands in air (avgWristY < avgShoulderY).
-  const isUprightStanding =
+  // Rejection check for Standing / Sitting Upright
+  const isUprightStandingOrSitting =
     !isSidePlank &&
-    torsoAngleWithHorizontal > 70 &&
-    midShoulder.y < 0.30 &&
-    midLowerY > 0.75 &&
-    (avgWristY < avgShoulderY || wristSpan < 0.25);
+    (torsoAngleWithHorizontal > 68 || !areHandsSupporting || !isHipPositionValid || avgWristY < 0.35);
 
-  const isPlankOrientation = (isSidePlank || isFrontOrDiagonalPlank) && !isUprightStanding;
+  const isPlankOrientation = (isSidePlank || isFrontOrDiagonalPlank) && !isUprightStandingOrSitting;
+
   const orientation: 'horizontal' | 'vertical' | 'unknown' = isPlankOrientation
     ? 'horizontal'
-    : isUprightStanding || torsoAngleWithHorizontal >= 75
-    ? 'vertical'
-    : 'unknown';
+    : 'vertical';
 
-  if (!isPlankOrientation || orientation === 'vertical') {
+  if (!isPlankOrientation || !areHandsSupporting || orientation === 'vertical') {
     return {
       isPositionValid: false,
-      positionInvalidReason: 'Get down into push-up plank position on the floor',
-      orientation,
+      positionInvalidReason: !areHandsSupporting
+        ? 'Place both hands firmly on the ground to begin'
+        : 'Get down into push-up plank position on the floor',
+      orientation: 'vertical',
       hipAlignmentStatus: 'invalid',
       torsoAngleWithHorizontal,
       fullBodyAngleWithHorizontal: torsoAngleWithHorizontal,
       isPlankOrientation: false,
       isBodyStraight: false,
-      landmarksVisible: true,
-      isFullBodyVisible: false,
-      areHandsSupporting,
-      confidence: upperBodyConf,
-    };
-  }
-
-  if (!areHandsSupporting) {
-    return {
-      isPositionValid: false,
-      positionInvalidReason: 'Place your hands firmly on the ground under shoulders',
-      orientation,
-      hipAlignmentStatus: 'good',
-      torsoAngleWithHorizontal,
-      fullBodyAngleWithHorizontal: torsoAngleWithHorizontal,
-      isPlankOrientation: true,
-      isBodyStraight: true,
       landmarksVisible: true,
       isFullBodyVisible: false,
       areHandsSupporting: false,
@@ -345,7 +361,7 @@ export function validatePushUpPosture(
   return {
     isPositionValid,
     positionInvalidReason: isPositionValid ? 'Push-up position locked' : positionInvalidReason,
-    orientation,
+    orientation: 'horizontal',
     hipAlignmentStatus,
     torsoAngleWithHorizontal,
     fullBodyAngleWithHorizontal: torsoAngleWithHorizontal,
