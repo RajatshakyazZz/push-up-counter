@@ -17,7 +17,6 @@ export type FormStatus =
   | 'straighten_back'
   | 'lockout_arms'
   | 'no_person'
-  | 'calibrating'
   | 'invalid_position'
   | 'hands_misaligned'
   | 'stand_down';
@@ -107,6 +106,7 @@ export interface InstalledApp {
   isProtected?: boolean;
   targetReps?: number;
   unlockMinutes?: number;
+  rewardSecondsPerRep?: number;
 }
 
 export interface ProtectedApp {
@@ -119,6 +119,7 @@ export interface ProtectedApp {
   iconDataUri?: string;
   targetReps: number;
   unlockMinutes: number;
+  rewardSecondsPerRep?: number; // default 60 (1 minute per push-up)
   isProtected: boolean;
   timesUnlockedToday: number;
   totalUnlocks: number;
@@ -151,8 +152,18 @@ export interface WorkoutSessionLog {
 export interface AppProtectionSettings {
   defaultUnlockMinutes: number;
   defaultPushUpTarget: number;
+  rewardSecondsPerRep: number; // 15, 30, 60, 120, 180, 300
   strictLockMode: boolean;
   autoRelockOnScreenOff: boolean;
   vibrationOnLock: boolean;
   notifyOnExpire: boolean;
+}
+
+export interface PermissionCheckResult {
+  camera: boolean;
+  overlay: boolean;
+  accessibility: boolean;
+  isOemRequiringAutoStart: boolean;
+  manufacturer: string;
+  allRequiredGranted: boolean;
 }

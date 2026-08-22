@@ -4,23 +4,24 @@ import React, { useRef, useEffect, useState } from 'react';
 import {
   Camera,
   CameraOff,
-  Maximize,
-  Minimize,
-  FlipHorizontal,
   Loader2,
-  Smartphone,
-  Monitor,
-  Flame,
   CheckCircle2,
   AlertTriangle,
-  Bug,
-  Activity,
   ShieldCheck,
   ShieldAlert,
+  Volume2,
+  VolumeX,
+  ArrowLeft,
+  Pause,
+  Play,
+  Check,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react';
-import { PushUpPhase, FormStatus, PushUpSettings, WorkoutStats, PushUpDebugInfo } from '@/types/fitness';
+import { PushUpPhase, FormStatus, PushUpSettings, WorkoutStats } from '@/types/fitness';
 import { PoseAnalysis } from '@/lib/pose-math';
 import { PreWorkoutCountdown } from '@/components/PreWorkoutCountdown';
+import { triggerHaptic } from '@/lib/haptics';
 
 interface CameraFeedProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -36,14 +37,15 @@ interface CameraFeedProps {
   analysis: PoseAnalysis | null;
   settings: PushUpSettings;
   stats?: WorkoutStats;
-  debugInfo?: PushUpDebugInfo;
-  cameraAspect?: '9:16' | '16:9';
   isCountdownActive?: boolean;
+  unlockedAppName?: string;
   onStartCamera: () => void;
   onStopCamera: () => void;
-  onToggleMirror: () => void;
-  onToggleAspectRatio?: (aspect: '9:16' | '16:9') => void;
-  onToggleDebug?: () => void;
+  onToggleSound?: () => void;
+  onBack?: () => void;
+  onPause?: () => void;
+  onResume?: () => void;
+  onFinishWorkout?: () => void;
   onCountdownComplete?: () => void;
   onCountdownCancel?: () => void;
   onUpdateCountdownDuration?: (seconds: number) => void;
@@ -63,102 +65,89 @@ export function CameraFeed({
   analysis,
   settings,
   stats,
-  debugInfo,
-  cameraAspect = '9:16',
   isCountdownActive = false,
+  unlockedAppName,
   onStartCamera,
   onStopCamera,
-  onToggleMirror,
-  onToggleAspectRatio,
-  onToggleDebug,
+  onToggleSound,
+  onBack,
+  onPause,
+  onResume,
+  onFinishWorkout,
   onCountdownComplete,
   onCountdownCancel,
   onUpdateCountdownDuration,
 }: CameraFeedProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showDebugOverlay, setShowDebugOverlay] = useState(settings.debugMode ?? false);
 
-  useEffect(() => {
-    if (settings.debugMode !== undefined) {
-      setShowDebugOverlay(settings.debugMode);
-    }
-  }, [settings.debugMode]);
-
-  // Fullscreen toggle handler with 9:16 ratio switch
-  const handleToggleFullscreen = () => {
-    if (!containerRef.current) return;
-    
-    // Switch to 9:16 portrait aspect ratio for full-body view
-    if (onToggleAspectRatio) {
-      onToggleAspectRatio('9:16');
-    }
-
-    if (!document.fullscreenElement) {
-      containerRef.current
-        .requestFullscreen()
-        .then(() => setIsFullscreen(true))
-        .catch(() => {
-          // Fallback to simulated fullscreen in iframes/mobile
-          setIsFullscreen((prev) => !prev);
-        });
-    } else {
-      document
-        .exitFullscreen()
-        .then(() => setIsFullscreen(false))
-        .catch(() => {
-          setIsFullscreen(false);
-        });
-    }
-  };
-
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
-
+  const totalReps = stats?.totalReps ?? 0;
+  const targetReps = settings.targetReps ?? 20;
+  const isPaused = stats?.isPaused ?? false;
   const depth = analysis?.depthPercentage ?? 0;
-  const isDepthTargetReached = depth >= 90;
-
-  const is916 = cameraAspect === '9:16';
-
-  const toggleAspect = () => {
-    if (onToggleAspectRatio) {
-      onToggleAspectRatio(is916 ? '16:9' : '9:16');
-    }
-  };
-
-  const handleToggleDebugMode = () => {
-    setShowDebugOverlay((prev) => !prev);
-    if (onToggleDebug) onToggleDebug();
-  };
 
   return (
     <div
       ref={containerRef}
-      className={`relative flex flex-col w-full overflow-hidden transition-all duration-300 ${
-        isFullscreen
-          ? 'fixed inset-0 z-50 bg-black p-2 sm:p-4 flex items-center justify-center'
-          : 'rounded-[2rem] border border-zinc-800 bg-zinc-900 p-2 sm:p-3 shadow-2xl group'
-      }`}
+      className="relative flex flex-col w-full max-w-lg mx-auto bg-black text-white rounded-[2.5rem] overflow-hidden shadow-2xl border border-zinc-800 h-[88vh] sm:h-[82vh]"
     >
-      {/* Inner Video & Canvas Bento Container */}
-      <div
-        className={`relative w-full overflow-hidden flex items-center justify-center border border-zinc-800/60 bg-zinc-950 transition-all duration-300 ${
-          isFullscreen
-            ? 'h-full max-h-screen aspect-[9/16] w-auto max-w-full rounded-2xl shadow-2xl'
-            : is916
-            ? 'aspect-[9/16] max-h-[75vh] sm:max-h-[80vh] w-full max-w-sm sm:max-w-md mx-auto rounded-[1.5rem]'
-            : 'aspect-video sm:aspect-[16/10] lg:aspect-video w-full rounded-[1.5rem]'
-        }`}
-      >
-        {/* Subtle Vignette Gradient */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/30 pointer-events-none z-10" />
+      {/* 1. TOP BAR */}
+      <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-auto">
+        <button
+          onClick={() => {
+            triggerHaptic('click');
+            if (onBack) onBack();
+          }}
+          className="p-2.5 rounded-full bg-black/60 backdrop-blur-md text-white hover:bg-black/80 transition-all active:scale-95 cursor-pointer border border-white/10"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
 
-        {/* Hidden / Actual Video Element */}
+        <div className="text-center">
+          <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
+            {unlockedAppName ? `Unlocking ${unlockedAppName}` : 'Push-Up Workout'}
+          </span>
+        </div>
+
+        <button
+          onClick={() => {
+            triggerHaptic('click');
+            if (onToggleSound) onToggleSound();
+          }}
+          className="p-2.5 rounded-full bg-black/60 backdrop-blur-md text-white hover:bg-black/80 transition-all active:scale-95 cursor-pointer border border-white/10"
+        >
+          {settings.soundEffects ? (
+            <Volume2 className="w-5 h-5 text-emerald-400" />
+          ) : (
+            <VolumeX className="w-5 h-5 text-zinc-400" />
+          )}
+        </button>
+      </div>
+
+      {/* 2. BIG REPUTATION COUNTER HUD (Visual Focus) */}
+      <div className="absolute top-16 inset-x-0 z-30 flex flex-col items-center pointer-events-none px-4">
+        <div className="flex flex-col items-center bg-black/50 backdrop-blur-md px-6 py-2 rounded-3xl border border-white/10 shadow-lg">
+          <div className="text-4xl sm:text-5xl font-black font-mono tracking-tight text-white flex items-baseline gap-2">
+            <span className="text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.5)]">
+              {totalReps}
+            </span>
+            {targetReps > 0 && (
+              <span className="text-xl sm:text-2xl font-bold text-zinc-400">
+                / {targetReps}
+              </span>
+            )}
+          </div>
+          <span className="text-[11px] font-black uppercase tracking-widest text-emerald-400/90 mt-0.5">
+            Push-ups
+          </span>
+        </div>
+      </div>
+
+      {/* 3. VIDEO FEED & CLEAN SKELETON CANVAS */}
+      <div className="relative flex-1 w-full h-full bg-zinc-950 overflow-hidden flex items-center justify-center">
+        {/* Subtle Vignette Gradient */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/30 pointer-events-none z-10" />
+
+        {/* Video Element */}
         <video
           ref={videoRef}
           playsInline
@@ -172,427 +161,136 @@ export function CameraFeed({
         {/* Skeleton Canvas Overlay */}
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 h-full w-full object-cover pointer-events-none z-10"
+          className="absolute inset-0 h-full w-full object-cover pointer-events-none z-10 opacity-90"
         />
 
         {/* Camera Inactive / Loading Placeholder */}
         {(!isCameraActive || isLoading) && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/90 p-4 sm:p-6 text-center backdrop-blur-md">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/95 p-6 text-center backdrop-blur-md">
             {isLoading ? (
-              <div className="flex flex-col items-center space-y-4">
-                <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-lime-400/10 border border-lime-400/30">
-                  <Loader2 className="h-8 w-8 animate-spin text-lime-400" />
-                </div>
-                <div className="space-y-1">
-                  <h3 className="text-base font-bold text-white">
-                    Initializing Pose Engine...
-                  </h3>
-                  <p className="text-xs text-zinc-400 max-w-xs">
-                    Loading high-speed MediaPipe AI neural tracker into browser memory.
-                  </p>
-                </div>
+              <div className="flex flex-col items-center space-y-3">
+                <Loader2 className="h-10 w-10 animate-spin text-emerald-400" />
+                <p className="text-sm font-bold text-white">Starting Pose AI Engine...</p>
               </div>
             ) : cameraError ? (
-              <div className="flex flex-col items-center space-y-4 max-w-md px-2">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400">
-                  <CameraOff className="h-7 w-7" />
+              <div className="flex flex-col items-center space-y-3 max-w-xs">
+                <div className="p-3 rounded-2xl bg-red-500/10 text-red-400 border border-red-500/30">
+                  <CameraOff className="w-8 h-8" />
                 </div>
-                <div className="space-y-1 text-center">
-                  <h3 className="text-base font-bold text-white">Camera Access Notice</h3>
-                  <p className="text-xs text-zinc-400">{cameraError}</p>
-                </div>
+                <p className="text-sm font-bold text-white">Camera Permission Needed</p>
+                <p className="text-xs text-zinc-400">{cameraError}</p>
                 <button
-                  id="retry-camera-btn"
                   onClick={onStartCamera}
-                  className="mt-2 inline-flex items-center space-x-2 rounded-xl bg-lime-400 px-5 py-2.5 text-xs font-black uppercase text-black hover:bg-lime-300 transition-colors cursor-pointer"
+                  className="mt-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
                 >
-                  <Camera className="h-4 w-4" />
-                  <span>Retry Camera</span>
+                  Enable Camera
                 </button>
               </div>
             ) : (
-              <div className="flex flex-col items-center space-y-4 max-w-sm px-3">
-                <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-3xl bg-zinc-900 border border-zinc-800 text-zinc-400 shadow-inner">
-                  <Camera className="h-8 w-8 sm:h-10 sm:w-10 text-lime-400" />
+              <div className="flex flex-col items-center space-y-3 max-w-xs">
+                <div className="p-4 rounded-3xl bg-zinc-900 text-emerald-400 border border-zinc-800 shadow-inner">
+                  <Camera className="w-10 h-10" />
                 </div>
-                <div className="space-y-1 text-center">
-                  <h3 className="text-lg sm:text-xl font-black text-white tracking-tight">Camera Feed Ready</h3>
-                  <p className="text-xs text-zinc-400">
-                    Enable webcam for 9:16 full-body pose tracking and automatic rep counting.
-                  </p>
-                </div>
+                <p className="text-base font-bold text-white">Ready for Push-ups</p>
+                <p className="text-xs text-zinc-400">Position your phone in front of you so your full body is visible.</p>
                 <button
-                  id="start-camera-cta-btn"
                   onClick={onStartCamera}
-                  className="mt-2 inline-flex items-center space-x-2 rounded-2xl bg-lime-400 px-6 py-3.5 text-sm font-black uppercase tracking-tight text-black shadow-lg shadow-lime-400/20 hover:bg-lime-300 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                  className="mt-2 px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 cursor-pointer"
                 >
-                  <Camera className="h-4 w-4 stroke-[2.5]" />
-                  <span>Enable Camera</span>
+                  Start Camera
                 </button>
               </div>
             )}
           </div>
         )}
-
-        {/* Real-time Bento HUD Elements (Visible when camera is active) */}
-        {isCameraActive && (
-          <>
-            {/* Top Left Badges */}
-            <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20 flex flex-wrap items-center gap-1.5 pointer-events-none">
-              <span className="px-2.5 py-1 bg-black/60 backdrop-blur-md rounded-lg text-[9px] sm:text-[10px] font-bold uppercase tracking-wider border border-white/10 text-zinc-200">
-                {fps > 0 ? `${fps} FPS` : '60 FPS'}
-              </span>
-              {analysis?.landmarksVisible ? (
-                <span className={`px-2.5 py-1 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm ${
-                  analysis.isPositionValid
-                    ? 'bg-lime-400 text-black shadow-lime-400/30'
-                    : 'bg-amber-400 text-black shadow-amber-400/30'
-                }`}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-black animate-pulse" />
-                  {analysis.isPositionValid ? 'Plank Locked' : 'Adjust Pose'}
-                </span>
-              ) : (
-                <span className="px-2.5 py-1 bg-zinc-800/90 text-zinc-300 border border-zinc-700/60 rounded-lg text-[9px] sm:text-[10px] font-bold uppercase tracking-wider backdrop-blur-md">
-                  Scanning...
-                </span>
-              )}
-            </div>
-
-            {/* Top Right Controls & Aspect Ratio Toggle */}
-            <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex items-center gap-1.5 pointer-events-auto">
-              {/* Debug HUD Toggle Button */}
-              <button
-                id="camera-debug-toggle"
-                onClick={handleToggleDebugMode}
-                title={showDebugOverlay ? 'Hide Debug HUD' : 'Show Debug HUD'}
-                className={`flex h-8 w-8 items-center justify-center rounded-xl backdrop-blur-md border transition-colors cursor-pointer ${
-                  showDebugOverlay
-                    ? 'bg-lime-400 text-black border-lime-300'
-                    : 'bg-black/60 text-zinc-300 hover:text-white hover:bg-black/80 border-white/10'
-                }`}
-              >
-                <Bug className="h-3.5 w-3.5" />
-              </button>
-
-              {/* 9:16 vs 16:9 Aspect Ratio Pill Switcher */}
-              <button
-                id="aspect-ratio-toggle-btn"
-                onClick={toggleAspect}
-                title={is916 ? 'Switch to 16:9 Widescreen' : 'Switch to 9:16 Full Body Portrait'}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-black/70 backdrop-blur-md text-[10px] font-bold text-lime-400 border border-lime-400/40 hover:bg-black/90 transition-all cursor-pointer shadow-md"
-              >
-                {is916 ? (
-                  <>
-                    <Smartphone className="h-3.5 w-3.5 text-lime-400" />
-                    <span className="hidden xs:inline sm:inline">9:16 BODY</span>
-                  </>
-                ) : (
-                  <>
-                    <Monitor className="h-3.5 w-3.5 text-zinc-300" />
-                    <span className="hidden xs:inline sm:inline">16:9 WIDE</span>
-                  </>
-                )}
-              </button>
-
-              {/* Mirror toggle */}
-              <button
-                id="camera-mirror-toggle"
-                onClick={onToggleMirror}
-                title="Mirror Video"
-                className="flex h-8 w-8 items-center justify-center rounded-xl bg-black/60 backdrop-blur-md text-zinc-300 hover:text-white hover:bg-black/80 border border-white/10 transition-colors cursor-pointer"
-              >
-                <FlipHorizontal className="h-3.5 w-3.5" />
-              </button>
-
-              {/* Fullscreen toggle (auto 9:16 mode) */}
-              <button
-                id="camera-fullscreen-toggle"
-                onClick={handleToggleFullscreen}
-                title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen 9:16 Camera'}
-                className="flex h-8 w-8 items-center justify-center rounded-xl bg-black/60 backdrop-blur-md text-zinc-300 hover:text-white hover:bg-black/80 border border-white/10 transition-colors cursor-pointer"
-              >
-                {isFullscreen ? (
-                  <Minimize className="h-3.5 w-3.5 text-lime-400" />
-                ) : (
-                  <Maximize className="h-3.5 w-3.5" />
-                )}
-              </button>
-
-              {/* Turn off camera */}
-              <button
-                id="camera-stop-btn"
-                onClick={onStopCamera}
-                title="Turn off Camera"
-                className="flex h-8 w-8 items-center justify-center rounded-xl bg-black/60 backdrop-blur-md text-red-400 hover:text-red-300 hover:bg-red-950/80 border border-red-500/30 transition-colors cursor-pointer"
-              >
-                <CameraOff className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            {/* Developer Debug HUD Overlay */}
-            {showDebugOverlay && debugInfo && (
-              <div className="absolute top-14 left-3 sm:left-4 z-30 max-w-[260px] sm:max-w-xs bg-black/90 backdrop-blur-md rounded-2xl p-3 border border-lime-400/40 text-[10px] sm:text-xs font-mono text-zinc-200 space-y-1 shadow-2xl pointer-events-none">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-1 mb-1.5 font-bold text-lime-400">
-                  <span className="flex items-center gap-1 text-[11px]">
-                    <Activity className="h-3.5 w-3.5 text-lime-400" />
-                    DEBUG HUD
-                  </span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
-                      debugInfo.isPositionValid
-                        ? 'bg-lime-400/20 text-lime-400 border border-lime-400/40'
-                        : 'bg-red-500/20 text-red-400 border border-red-500/40'
-                    }`}
-                  >
-                    {debugInfo.isPositionValid ? 'VALID' : 'INVALID'}
-                  </span>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Orientation:</span>
-                  <span
-                    className={
-                      debugInfo.orientation === 'horizontal'
-                        ? 'text-lime-400 font-bold'
-                        : 'text-amber-400 font-bold'
-                    }
-                  >
-                    {debugInfo.orientation.toUpperCase()} ({debugInfo.torsoAngle}°)
-                  </span>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Confidence:</span>
-                  <span
-                    className={
-                      debugInfo.poseConfidence >= 50
-                        ? 'text-white'
-                        : 'text-amber-400'
-                    }
-                  >
-                    {debugInfo.poseConfidence}%
-                  </span>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Elbow Angle:</span>
-                  <span className="text-white font-bold">
-                    {debugInfo.dominantElbowAngle}° (L:{debugInfo.leftElbowAngle}° / R:{debugInfo.rightElbowAngle}°)
-                  </span>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Hip Alignment:</span>
-                  <span
-                    className={
-                      debugInfo.hipAlignment === 'good'
-                        ? 'text-lime-400'
-                        : 'text-amber-400'
-                    }
-                  >
-                    {debugInfo.hipAlignment.toUpperCase()} ({debugInfo.bodyAngle}°)
-                  </span>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">State:</span>
-                  <span className="text-cyan-400 font-bold">
-                    {debugInfo.currentState.toUpperCase()} ({debugInfo.consecutiveFrames}/{debugInfo.requiredFrames}f)
-                  </span>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Rep Delta:</span>
-                  <span className="text-white">
-                    min: {debugInfo.minAngleInRep}° | Δ: {debugInfo.repAngleDelta}°
-                  </span>
-                </div>
-
-                {!debugInfo.isPositionValid && (
-                  <div className="text-[9px] text-amber-300 bg-amber-500/15 rounded px-1.5 py-0.5 border border-amber-500/30 truncate mt-1">
-                    ⚠️ {debugInfo.invalidReason}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Side Depth Meter Gauge (Left overlay) */}
-            <div className="absolute left-3 sm:left-4 top-14 bottom-16 sm:bottom-20 z-20 flex flex-col items-center justify-between w-7 sm:w-8 pointer-events-none">
-              <div className="flex flex-col items-center h-full w-full py-2 px-1 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 backdrop-blur-md">
-                <span className="text-[7px] sm:text-[8px] font-bold text-zinc-500 uppercase tracking-tighter">
-                  Depth
-                </span>
-                
-                {/* Vertical Bar Container */}
-                <div className="relative flex-1 w-1.5 sm:w-2 my-1.5 sm:my-2 rounded-full bg-zinc-800/80 overflow-hidden flex flex-col justify-end">
-                  {/* Target 90deg threshold indicator line */}
-                  <div
-                    className="absolute inset-x-0 top-[10%] h-[2px] bg-lime-400 z-10 shadow-sm shadow-lime-400"
-                    title="Target Depth (90°)"
-                  />
-                  {/* Fill Level */}
-                  <div
-                    className={`w-full transition-all duration-75 rounded-full ${
-                      isDepthTargetReached
-                        ? 'bg-lime-400 shadow-sm shadow-lime-400'
-                        : 'bg-zinc-400'
-                    }`}
-                    style={{ height: `${depth}%` }}
-                  />
-                </div>
-
-                <span
-                  className={`text-[8px] sm:text-[9px] font-mono font-bold ${
-                    isDepthTargetReached ? 'text-lime-400' : 'text-zinc-400'
-                  }`}
-                >
-                  {depth}%
-                </span>
-              </div>
-            </div>
-
-            {/* Real-time Angle Diagnostics Box (Top Right overlay) */}
-            {settings.showAngles && analysis && analysis.landmarksVisible && (
-              <div className="absolute right-3 sm:right-4 top-14 z-20 flex flex-col space-y-1.5 pointer-events-none">
-                <div className="rounded-xl bg-black/75 border border-white/10 p-1.5 sm:p-2 text-right backdrop-blur-md min-w-[75px] sm:min-w-[90px]">
-                  <div className="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-zinc-400">
-                    Elbow
-                  </div>
-                  <div
-                    className={`text-xs sm:text-sm font-black font-mono ${
-                      analysis.elbowAngle <= settings.downAngleThreshold
-                        ? 'text-lime-400'
-                        : 'text-white'
-                    }`}
-                  >
-                    {Math.round(analysis.elbowAngle)}°
-                  </div>
-                </div>
-
-                <div className="rounded-xl bg-black/75 border border-white/10 p-1.5 sm:p-2 text-right backdrop-blur-md min-w-[75px] sm:min-w-[90px]">
-                  <div className="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-zinc-400">
-                    Plank
-                  </div>
-                  <div
-                    className={`text-xs sm:text-sm font-black font-mono ${
-                      analysis.isBodyStraight ? 'text-lime-400' : 'text-amber-400'
-                    }`}
-                  >
-                    {Math.round(analysis.bodyAngle)}°
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* In-Camera Floating Rep Counter HUD Badge (Ultra-Visible on Mobile while doing Pushups) */}
-            <div className="absolute top-12 sm:top-14 inset-x-0 z-20 flex flex-col items-center pointer-events-none px-4">
-              <div className="flex items-center gap-2 sm:gap-3 bg-zinc-950/85 border-2 border-lime-400/60 shadow-xl shadow-black/80 rounded-2xl sm:rounded-3xl px-3.5 sm:px-5 py-1.5 sm:py-2.5 backdrop-blur-xl transition-all duration-150">
-                {/* Giant Rep Number */}
-                <div className="flex items-baseline gap-1">
-                  <span
-                    id="camera-hud-reps-count"
-                    className="text-2xl sm:text-4xl font-black font-mono tracking-tight text-lime-400 drop-shadow-[0_0_12px_rgba(163,230,53,0.4)]"
-                  >
-                    {stats?.totalReps ?? 0}
-                  </span>
-                  <span className="text-[10px] sm:text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                    {settings.targetReps > 0 ? `/ ${settings.targetReps} GOAL` : 'REPS'}
-                  </span>
-                </div>
-
-                {/* Vertical Divider */}
-                <div className="h-6 sm:h-8 w-px bg-zinc-700/80" />
-
-                {/* Dynamic Live Phase Pill */}
-                <div className="flex items-center gap-1.5">
-                  {!analysis?.isPositionValid && analysis?.landmarksVisible ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 text-[10px] sm:text-xs font-bold uppercase tracking-tight">
-                      <ShieldAlert className="h-3 w-3" />
-                      {analysis?.orientation === 'vertical'
-                        ? 'Get in Plank'
-                        : !analysis?.areHandsSupporting
-                        ? 'Hands on Floor'
-                        : 'Invalid Pose'}
-                    </span>
-                  ) : phase === 'down' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-lime-400 text-black font-black text-[10px] sm:text-xs uppercase tracking-tight animate-bounce shadow-md shadow-lime-400/50">
-                      ⚡ PUSH UP!
-                    </span>
-                  ) : phase === 'going_down' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[10px] sm:text-xs font-bold uppercase tracking-tight">
-                      ⬇ Lower ({depth}%)
-                    </span>
-                  ) : phase === 'going_up' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-cyan-400/20 border border-cyan-400/40 text-cyan-300 text-[10px] sm:text-xs font-bold uppercase tracking-tight">
-                      ⬆ Lock Out
-                    </span>
-                  ) : phase === 'position_check' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-300 text-[10px] sm:text-xs font-bold uppercase tracking-tight">
-                      🔄 Locking...
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] sm:text-xs font-bold uppercase tracking-tight">
-                      <ShieldCheck className="h-3 w-3 text-lime-400" />
-                      Ready
-                    </span>
-                  )}
-
-                  {/* Streak Badge if > 1 */}
-                  {(stats?.currentStreak ?? 0) > 1 && (
-                    <span className="hidden xs:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-lg bg-orange-500/20 text-orange-400 border border-orange-500/30 text-[9px] sm:text-[10px] font-bold">
-                      <Flame className="h-2.5 w-2.5 fill-orange-400" />
-                      {stats?.currentStreak}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom Bento Overlay Bar with Live Coach Guidance */}
-            <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-4 sm:right-4 z-20 flex justify-between items-end pointer-events-none">
-              <div className="max-w-[78%]">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="w-2 h-2 rounded-full bg-lime-400 animate-ping" />
-                  <p className="text-zinc-400 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">
-                    Live Coach
-                  </p>
-                </div>
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-black/80 border border-white/10 backdrop-blur-md shadow-lg">
-                  {formStatus === 'good_form' || formStatus === 'perfect_depth' ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-lime-400 shrink-0" />
-                  ) : (
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                  )}
-                  <h2 className="text-xs sm:text-sm font-bold text-white tracking-tight line-clamp-1">
-                    {feedbackMessage}
-                  </h2>
-                </div>
-              </div>
-
-              {/* Bento Equalizer Bars */}
-              <div className="flex gap-1 h-6 sm:h-7 items-end">
-                <div className={`w-1 rounded-full ${analysis?.landmarksVisible ? 'bg-lime-400 h-1/2 animate-pulse' : 'bg-zinc-700 h-1/3'}`} />
-                <div className={`w-1 rounded-full ${analysis?.landmarksVisible ? 'bg-lime-400 h-3/4 animate-bounce' : 'bg-zinc-700 h-1/4'}`} />
-                <div className={`w-1 rounded-full ${isDepthTargetReached ? 'bg-lime-400 h-full' : 'bg-zinc-700 h-1/2'}`} />
-                <div className={`w-1 rounded-full ${analysis?.landmarksVisible ? 'bg-lime-400 h-2/3 animate-pulse' : 'bg-zinc-700 h-1/3'}`} />
-                <div className={`w-1 rounded-full ${analysis?.landmarksVisible ? 'bg-lime-400 h-1/2' : 'bg-zinc-700 h-1/4'}`} />
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Pre-Workout 5-Second Buffer Countdown Overlay */}
-        <PreWorkoutCountdown
-          isOpen={isCountdownActive}
-          durationSeconds={settings.countdownSeconds || 5}
-          isPoseDetected={!!analysis?.landmarksVisible}
-          settings={settings}
-          onComplete={() => onCountdownComplete?.()}
-          onCancel={() => onCountdownCancel?.()}
-          onUpdateDuration={(sec) => onUpdateCountdownDuration?.(sec)}
-        />
       </div>
+
+      {/* 4. SUBTLE FORM STATUS PILL (Directly above bottom bar) */}
+      {isCameraActive && (
+        <div className="absolute bottom-24 inset-x-0 z-30 flex justify-center pointer-events-none px-4">
+          {!analysis?.landmarksVisible ? (
+            <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-xs font-semibold text-zinc-300">
+              <span className="w-2 h-2 rounded-full bg-zinc-400 animate-pulse" />
+              <span>Step back so camera sees your body</span>
+            </div>
+          ) : !analysis?.isPositionValid ? (
+            <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-red-500/80 backdrop-blur-md text-xs font-bold text-white shadow-md">
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>
+                {analysis?.orientation === 'vertical'
+                  ? 'Get into plank position on the floor'
+                  : 'Adjust posture — hands on floor'}
+              </span>
+            </div>
+          ) : phase === 'down' ? (
+            <div className="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-emerald-500 text-white text-sm font-black uppercase tracking-wide animate-bounce shadow-lg shadow-emerald-500/50">
+              ⚡ PUSH UP!
+            </div>
+          ) : phase === 'going_down' ? (
+            <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-amber-500/80 backdrop-blur-md text-xs font-bold text-white">
+              <span>⬇ Lower chest ({depth}%)</span>
+            </div>
+          ) : phase === 'going_up' ? (
+            <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-cyan-500/80 backdrop-blur-md text-xs font-bold text-white">
+              <span>⬆ Push all the way up</span>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-xs font-bold text-emerald-400">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Plank Locked • Ready</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 5. BOTTOM WORKOUT CONTROLS */}
+      <div className="absolute bottom-0 inset-x-0 z-30 p-4 bg-gradient-to-t from-black/95 via-black/70 to-transparent flex items-center justify-between gap-3 pointer-events-auto">
+        <button
+          onClick={() => {
+            triggerHaptic('click');
+            if (isPaused) {
+              onResume?.();
+            } else {
+              onPause?.();
+            }
+          }}
+          className="flex-1 py-3.5 px-4 rounded-2xl bg-zinc-800/90 hover:bg-zinc-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 border border-zinc-700/80 backdrop-blur-md active:scale-95 transition-all cursor-pointer"
+        >
+          {isPaused ? (
+            <>
+              <Play className="w-4 h-4 fill-white" />
+              <span>Resume</span>
+            </>
+          ) : (
+            <>
+              <Pause className="w-4 h-4" />
+              <span>Pause</span>
+            </>
+          )}
+        </button>
+
+        <button
+          onClick={() => {
+            triggerHaptic('success');
+            onFinishWorkout?.();
+          }}
+          className="flex-1 py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 active:scale-95 transition-all cursor-pointer"
+        >
+          <Check className="w-4 h-4 stroke-[3]" />
+          <span>Finish Session</span>
+        </button>
+      </div>
+
+      {/* Pre-Workout Countdown Overlay */}
+      <PreWorkoutCountdown
+        isOpen={isCountdownActive}
+        durationSeconds={settings.countdownSeconds || 5}
+        isPoseDetected={!!analysis?.landmarksVisible}
+        settings={settings}
+        onComplete={() => onCountdownComplete?.()}
+        onCancel={() => onCountdownCancel?.()}
+        onUpdateDuration={(sec) => onUpdateCountdownDuration?.(sec)}
+      />
     </div>
   );
 }
-

@@ -110,11 +110,12 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
   - Warning / Blocker: `#EF4444` (Coral Red)
 
 ### Navigation Tabs (`app/page.tsx`, `components/AndroidBottomNav.tsx`):
-1. **Home (`components/HomeDashboard.tsx`)**: Daily rep summary, quick unlock card, active session countdowns, and recent activity.
-2. **Apps (`components/AppLockerView.tsx`)**: App locker catalogue, protection toggles, rep target editor, and instant lock tests.
-3. **Workout (`app/page.tsx:workout`)**: Live MediaPipe camera feed, in-camera HUD rep counter, depth gauge, form feedback, and controls.
-4. **History (`components/HistoryView.tsx`)**: Historical logs of verified workouts, accuracy scores, and unlocked apps.
-5. **Settings (`components/SettingsView.tsx`)**: Biomechanical angle calibration, sound/voice toggles, debug mode, and Android permissions guide.
+1. **Home (`components/HomeDashboard.tsx`)**: Real daily rep count, active session countdowns, and real recent workout logs.
+2. **Apps (`components/AppLockerView.tsx`)**: Real installed launcher apps from `PackageManager`, protect/unprotect buttons, and configuration sheets.
+3. **Workout (`app/page.tsx:workout`, `components/CameraFeed.tsx`)**: Ultra-clean portrait-optimized camera feed, bold HUD counter (`12 / 20`), subtle skeleton, concise live coach feedback pill, pause/resume, and finish buttons.
+4. **Time Management (`components/TimeManagementView.tsx`)**: Push-up reward engine configuring screen time earned per rep (`15s`, `30s`, `1m`, `2m`, `3m`, `5m`) with live mathematical preview.
+5. **History (`components/HistoryView.tsx`)**: Real historical logs of verified workouts, accuracy scores, and unlocked apps.
+6. **Settings (`components/SettingsView.tsx`)**: Voice coach toggles, sound effects, strict form mode, screen-off relock, and live Android native permissions diagnostics.
 
 ---
 
@@ -123,45 +124,52 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
 ├── android/                     # Native Android Capacitor Project
 │   ├── app/
 │   │   ├── build.gradle         # Application gradle build file (appId: com.pushlock.ai)
-│   │   ├── build/outputs/apk/debug/app-debug.apk # Generated Debug APK
+│   │   ├── build/outputs/apk/debug/app-debug.apk # Generated Debug APK (4.4 MB)
 │   │   └── src/main/
-│   │       ├── AndroidManifest.xml # Permissions (CAMERA) & Activities
+│   │       ├── AndroidManifest.xml # Permissions (CAMERA, SYSTEM_ALERT_WINDOW, BIND_ACCESSIBILITY_SERVICE)
+│   │       ├── java/com/pushlock/ai/
+│   │       │   ├── MainActivity.java # Main Activity & lock intent dispatcher
+│   │       │   ├── inventory/AppInventoryManager.kt # Real launcher app query & Base64 LRU cache
+│   │       │   ├── plugin/PushLockAppLockerPlugin.kt # Capacitor plugin bridge & permission checks
+│   │       │   ├── service/PushLockAccessibilityService.kt # Foreground app interception & continuous expiry timer
+│   │       │   └── storage/NativeAppProtectionStore.kt # Persistent SharedPreferences single source of truth
 │   │       └── assets/public/   # Synced Next.js production build assets
 │   ├── build.gradle             # Root gradle build configuration
 │   └── variables.gradle         # Android SDK & library versions
 ├── app/
 │   ├── globals.css              # Tailwind v4 theme & custom utilities
 │   ├── layout.tsx               # Root HTML layout & viewport metadata
-│   └── page.tsx                 # Main controller & navigation tab manager
+│   └── page.tsx                 # Main controller, permission gate & navigation tab manager
 ├── components/
+│   ├── AccessibilityConsentModal.tsx # Affirmative user disclosure modal before opening settings
 │   ├── ActiveTimersCard.tsx     # Active unlocked app session countdowns
 │   ├── AndroidBottomNav.tsx     # Bottom navigation bar
 │   ├── AndroidTopBar.tsx        # Top app bar with camera & audio switches
-│   ├── AppConfigModal.tsx       # Modal to add/edit push-up requirements per app
-│   ├── AppIcon.tsx              # Dynamic SVG app icon renderer
-│   ├── AppLockerView.tsx        # App locker management & category filter view
-│   ├── CameraFeed.tsx           # Video stream & skeleton canvas renderer with HUD
+│   ├── AppConfigModal.tsx       # Modal to configure push-up target and reward rate per app
+│   ├── AppIcon.tsx              # Dynamic SVG & native Base64 icon renderer
+│   ├── AppLockerView.tsx        # Real installed apps catalogue & protection manager
+│   ├── CameraFeed.tsx           # Clean portrait workout camera feed with giant HUD counter
 │   ├── ExerciseGuideModal.tsx   # Biomechanics push-up form instruction guide
 │   ├── FormFeedbackCard.tsx     # Real-time posture & form feedback
 │   ├── HistoryView.tsx          # Workout history & unlock records
-│   ├── HomeDashboard.tsx        # Primary overview dashboard
-│   ├── LockScreenModal.tsx      # Android overlay lock screen simulation
+│   ├── HomeDashboard.tsx        # Primary overview dashboard with real metrics
+│   ├── LockScreenModal.tsx      # Android overlay lock screen experience
 │   ├── PreWorkoutCountdown.tsx  # Pre-workout ready timer buffer
-│   ├── RepStatsCard.tsx         # Live rep count, pace, and calorie metrics
-│   ├── SettingsModal.tsx        # Quick settings modal
-│   ├── SettingsView.tsx         # Calibration & native Android permissions
-│   ├── WorkoutControls.tsx      # Start, pause, resume, reset controls
-│   └── WorkoutSummaryModal.tsx  # Post-workout celebration & stats breakdown
+│   ├── ProtectionSetupView.tsx  # First-launch Android permission onboarding & live diagnostic
+│   ├── SettingsModal.tsx        # Quick preferences modal
+│   ├── SettingsView.tsx         # Preferences & live Android permissions diagnostic
+│   ├── TimeManagementView.tsx   # Reward per push-up configuration screen
+│   └── WorkoutSummaryModal.tsx  # Post-workout celebration, stats breakdown, & Open App CTA
 ├── hooks/
 │   ├── usePoseDetector.ts       # MediaPipe Pose loader & video frame loop
-│   └── usePushUpTracker.ts      # Biomechanics state machine & rep counter
+│   └── usePushUpTracker.ts      # Biomechanics state machine & rep counter (Untouched!)
 ├── lib/
 │   ├── audio.ts                 # Web Audio synth sound effects & TTS speech synthesis
 │   ├── haptics.ts               # Device vibration feedback bridge
-│   ├── pose-math.ts             # 3D vector angle, posture gates, & landmark smoother
+│   ├── pose-math.ts             # 3D vector angle, posture gates, & landmark smoother (Untouched!)
 │   ├── skeleton-renderer.ts     # 60 FPS HTML5 canvas skeleton drawer (Green/Red)
 │   └── native-bridge/
-│       └── androidAppLocker.ts  # Android native interface & local storage
+│       └── androidAppLocker.ts  # Android native interface & SharedPreferences bridge
 ├── types/
 │   └── fitness.ts               # TypeScript interfaces for apps, reps, and sessions
 ├── capacitor.config.ts          # Capacitor App configuration

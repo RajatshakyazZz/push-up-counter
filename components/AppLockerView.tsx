@@ -5,20 +5,17 @@ import {
   Shield,
   ShieldAlert,
   ShieldCheck,
-  Plus,
   Search,
-  Sliders,
-  Play,
   Lock,
   Unlock,
   Dumbbell,
   Timer,
-  Check,
   Settings2,
   Info,
-  AlertTriangle,
   ExternalLink,
   Sparkles,
+  Check,
+  ChevronRight,
 } from 'lucide-react';
 import { ProtectedApp, InstalledApp, UnlockSession } from '@/types/fitness';
 import { AppIcon } from '@/components/AppIcon';
@@ -31,9 +28,7 @@ interface AppLockerViewProps {
   isProtectionEnabled: boolean;
   onOpenConsentModal: () => void;
   onToggleProtection: (packageName: string, isProtected: boolean) => void;
-  onOpenLockModal: (app: ProtectedApp) => void;
   onEditApp: (app: ProtectedApp) => void;
-  onAddNewApp: () => void;
   onProtectInstalledApp: (installedApp: InstalledApp) => void;
 }
 
@@ -44,20 +39,20 @@ export function AppLockerView({
   isProtectionEnabled,
   onOpenConsentModal,
   onToggleProtection,
-  onOpenLockModal,
   onEditApp,
-  onAddNewApp,
   onProtectInstalledApp,
 }: AppLockerViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'protected' | 'all'>('protected');
 
-  // Merge installed apps with protected configuration
+  // Map of installed apps
   const allInstalledMap = new Map<string, InstalledApp>();
   installedApps.forEach((app) => allInstalledMap.set(app.packageName, app));
 
-  const displayApps = (viewMode === 'protected' ? protectedApps : (
+  const activeProtectedApps = protectedApps.filter((a) => a.isProtected);
+
+  const displayApps = (viewMode === 'protected' ? activeProtectedApps : (
     installedApps.length > 0 ? installedApps.map((inst) => {
       const existing = protectedApps.find((p) => p.packageName === inst.packageName);
       if (existing) return existing;
@@ -70,13 +65,14 @@ export function AppLockerView({
         color: inst.color,
         iconDataUri: inst.iconDataUri,
         targetReps: 20,
-        unlockMinutes: 15,
+        unlockMinutes: 20,
+        rewardSecondsPerRep: 60,
         isProtected: false,
         timesUnlockedToday: 0,
         totalUnlocks: 0,
         lastUnlockedAt: null,
       } as ProtectedApp;
-    }) : protectedApps
+    }) : activeProtectedApps
   )).filter((app) => {
     const matchesSearch =
       app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -91,11 +87,12 @@ export function AppLockerView({
     { id: 'social', label: 'Social' },
     { id: 'entertainment', label: 'Entertainment' },
     { id: 'gaming', label: 'Games' },
-    { id: 'custom', label: 'Custom' },
+    { id: 'productivity', label: 'Productivity' },
+    { id: 'custom', label: 'Other' },
   ];
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-5 pb-24">
+    <div className="w-full max-w-4xl mx-auto space-y-5 pb-28">
       {/* Accessibility Service Status Banner */}
       {!isProtectionEnabled && (
         <div className="bg-amber-50 border border-amber-200 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
@@ -131,28 +128,15 @@ export function AppLockerView({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-black text-gray-900">
-              App Locker
+              App Protection
             </h1>
             <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black">
-              {protectedApps.filter((a) => a.isProtected).length} Locked
+              {activeProtectedApps.length} Protected
             </span>
           </div>
           <p className="text-xs sm:text-sm text-gray-500 mt-1">
-            Choose installed Android apps that require verified push-ups to unlock
+            Choose which apps require exercise to unlock on your Android device
           </p>
-        </div>
-
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            onClick={() => {
-              triggerHaptic('click');
-              onAddNewApp();
-            }}
-            className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add App</span>
-          </button>
         </div>
       </div>
 
@@ -172,7 +156,7 @@ export function AppLockerView({
                   : 'text-gray-500 hover:text-gray-900'
               }`}
             >
-              Protected ({protectedApps.filter((a) => a.isProtected).length})
+              Protected ({activeProtectedApps.length})
             </button>
             <button
               onClick={() => {
@@ -227,8 +211,29 @@ export function AppLockerView({
       {/* Apps List */}
       <div className="space-y-2.5">
         {displayApps.length === 0 ? (
-          <div className="bg-white rounded-3xl p-8 border border-gray-200 text-center text-gray-500">
-            <p className="font-semibold text-sm">No apps found matching your search</p>
+          <div className="bg-white rounded-3xl p-8 border border-gray-200 text-center text-gray-500 flex flex-col items-center justify-center gap-3">
+            <div className="p-3.5 rounded-2xl bg-gray-100 text-gray-400">
+              <Shield className="w-8 h-8" />
+            </div>
+            {viewMode === 'protected' ? (
+              <div>
+                <p className="font-bold text-sm text-gray-800">No protected apps yet</p>
+                <p className="text-xs text-gray-500 mt-1 max-w-xs mx-auto">
+                  Tap &quot;All Installed Apps&quot; tab above to select distracting apps and protect them with push-ups.
+                </p>
+                <button
+                  onClick={() => {
+                    triggerHaptic('click');
+                    setViewMode('all');
+                  }}
+                  className="mt-3 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all cursor-pointer"
+                >
+                  Browse Installed Apps
+                </button>
+              </div>
+            ) : (
+              <p className="font-semibold text-sm">No apps found matching your search</p>
+            )}
           </div>
         ) : (
           displayApps.map((app) => {
@@ -244,7 +249,7 @@ export function AppLockerView({
                 className={`bg-white rounded-3xl p-4 border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs ${
                   app.isProtected
                     ? 'border-gray-200/90'
-                    : 'border-gray-200/50 opacity-75 bg-gray-50/50'
+                    : 'border-gray-200/50 opacity-80 bg-gray-50/50'
                 }`}
               >
                 {/* Left App Details */}
@@ -271,21 +276,22 @@ export function AppLockerView({
                         </span>
                       )}
                     </div>
+
                     <div className="text-xs text-gray-500 flex items-center gap-2.5 mt-0.5 flex-wrap">
-                      <span className="flex items-center gap-1 text-emerald-700 font-semibold">
-                        <Dumbbell className="w-3.5 h-3.5" />
-                        {app.targetReps} reps
-                      </span>
-                      <span className="text-gray-300">•</span>
-                      <span className="flex items-center gap-1 text-blue-700 font-semibold">
-                        <Timer className="w-3.5 h-3.5" />
-                        {app.unlockMinutes}m access
-                      </span>
-                      {app.timesUnlockedToday > 0 && (
+                      {app.isProtected ? (
                         <>
+                          <span className="flex items-center gap-1 text-emerald-700 font-semibold">
+                            <Dumbbell className="w-3.5 h-3.5" />
+                            {app.targetReps} reps
+                          </span>
                           <span className="text-gray-300">•</span>
-                          <span>{app.timesUnlockedToday}x today</span>
+                          <span className="flex items-center gap-1 text-blue-700 font-semibold">
+                            <Timer className="w-3.5 h-3.5" />
+                            {app.unlockMinutes}m access
+                          </span>
                         </>
+                      ) : (
+                        <span className="text-gray-400">Not protected</span>
                       )}
                     </div>
                   </div>
@@ -293,41 +299,49 @@ export function AppLockerView({
 
                 {/* Right Action Controls */}
                 <div className="flex items-center gap-2 self-end sm:self-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100 w-full sm:w-auto justify-between sm:justify-end">
-                  {/* Test Lock Simulator Button */}
-                  <button
-                    onClick={() => {
-                      triggerHaptic('click');
-                      onOpenLockModal(app);
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                    title="Simulate opening this app"
-                  >
-                    <Play className="w-3 h-3 fill-gray-700" />
-                    <span>Test Lock</span>
-                  </button>
+                  {app.isProtected ? (
+                    <>
+                      {/* Configure Button */}
+                      <button
+                        onClick={() => {
+                          triggerHaptic('click');
+                          onEditApp(app);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Edit Push-Up Target and Reward"
+                      >
+                        <Settings2 className="w-3.5 h-3.5" />
+                        <span>Configure</span>
+                      </button>
 
-                  {/* Configure App Button */}
-                  <button
-                    onClick={() => {
-                      triggerHaptic('click');
-                      onEditApp(app);
-                    }}
-                    className="p-2 rounded-xl text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
-                    title="Edit Push-Up Target and Duration"
-                  >
-                    <Settings2 className="w-4 h-4" />
-                  </button>
-
-                  {/* Toggle Protection Switch */}
-                  <label className="relative inline-flex items-center cursor-pointer ml-1">
-                    <input
-                      type="checkbox"
-                      checked={app.isProtected}
-                      onChange={(e) => onToggleProtection(app.packageName, e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                  </label>
+                      {/* Unprotect Button */}
+                      <button
+                        onClick={() => {
+                          triggerHaptic('click');
+                          onToggleProtection(app.packageName, false);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <span>Unprotect</span>
+                      </button>
+                    </>
+                  ) : (
+                    /* Protect CTA Button */
+                    <button
+                      onClick={() => {
+                        triggerHaptic('click');
+                        if (installedInfo) {
+                          onProtectInstalledApp(installedInfo);
+                        } else {
+                          onEditApp(app);
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Protect App</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );

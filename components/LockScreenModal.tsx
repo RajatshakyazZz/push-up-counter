@@ -1,17 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Lock,
-  Unlock,
   Dumbbell,
   Timer,
   X,
   Sparkles,
-  Flame,
-  ShieldAlert,
   Play,
-  CheckCircle2,
 } from 'lucide-react';
 import { ProtectedApp } from '@/types/fitness';
 import { AppIcon } from '@/components/AppIcon';
@@ -22,7 +18,6 @@ interface LockScreenModalProps {
   app: ProtectedApp | null;
   onClose: () => void;
   onStartUnlockWorkout: (app: ProtectedApp) => void;
-  onInstantUnlockTest?: (app: ProtectedApp) => void;
 }
 
 export function LockScreenModal({
@@ -30,7 +25,6 @@ export function LockScreenModal({
   app,
   onClose,
   onStartUnlockWorkout,
-  onInstantUnlockTest,
 }: LockScreenModalProps) {
   if (!isOpen || !app) return null;
 
@@ -39,15 +33,8 @@ export function LockScreenModal({
     onStartUnlockWorkout(app);
   };
 
-  const handleInstantUnlock = () => {
-    triggerHaptic('success');
-    if (onInstantUnlockTest) {
-      onInstantUnlockTest(app);
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
       <div
         className="relative w-full max-w-md bg-white rounded-[2rem] shadow-2xl border border-gray-100 overflow-hidden flex flex-col p-6 sm:p-8 text-center"
         onClick={(e) => e.stopPropagation()}
@@ -56,7 +43,7 @@ export function LockScreenModal({
         <button
           onClick={onClose}
           className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
-          title="Close / Stay Focused"
+          title="Stay Focused / Close"
         >
           <X className="w-5 h-5" />
         </button>
@@ -88,10 +75,10 @@ export function LockScreenModal({
 
         {/* App Title & Subtitle */}
         <h2 className="text-2xl font-black text-gray-900 tracking-tight mb-1">
-          {app.name}
+          {app.name} is Locked
         </h2>
-        <p className="text-sm text-gray-500 max-w-xs mx-auto mb-6">
-          Earn your screen time. Complete verified push-ups to unlock this app.
+        <p className="text-xs sm:text-sm text-gray-500 max-w-xs mx-auto mb-6 leading-relaxed">
+          Complete your verified push-up workout to earn screen time and unlock this app.
         </p>
 
         {/* Push-up Goal & Time Bento Card */}
@@ -101,9 +88,9 @@ export function LockScreenModal({
               <Dumbbell className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-[11px] font-bold text-gray-500 uppercase">Target</div>
+              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Required</div>
               <div className="text-lg font-black text-gray-900">
-                {app.targetReps} <span className="text-xs font-normal text-gray-500">Reps</span>
+                {app.targetReps} <span className="text-xs font-normal text-gray-500">Push-ups</span>
               </div>
             </div>
           </div>
@@ -113,7 +100,7 @@ export function LockScreenModal({
               <Timer className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-[11px] font-bold text-gray-500 uppercase">Unlock For</div>
+              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Reward</div>
               <div className="text-lg font-black text-gray-900">
                 {app.unlockMinutes} <span className="text-xs font-normal text-gray-500">Mins</span>
               </div>
@@ -121,10 +108,10 @@ export function LockScreenModal({
           </div>
         </div>
 
-        {/* How It Works Guarantee */}
+        {/* AI Guarantee */}
         <div className="flex items-center justify-center gap-2 text-xs font-medium text-gray-500 mb-6">
           <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>MediaPipe AI validates chest depth & plank form</span>
+          <span>Real-time MediaPipe AI verifies chest depth & form</span>
         </div>
 
         {/* Action Buttons */}
@@ -140,24 +127,11 @@ export function LockScreenModal({
 
           <button
             onClick={onClose}
-            className="w-full py-3 px-4 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-gray-100 text-sm font-semibold transition-colors cursor-pointer"
+            className="w-full py-3 px-4 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-gray-100 text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
           >
             Stay Focused / Close
           </button>
         </div>
-
-        {/* Developer / Demo Instant Test Trigger */}
-        {onInstantUnlockTest && (
-          <div className="mt-4 pt-3 border-t border-gray-100">
-            <button
-              onClick={handleInstantUnlock}
-              className="text-[11px] font-bold text-emerald-700 hover:underline inline-flex items-center gap-1 cursor-pointer"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Simulate instant push-up completion (Demo Test)</span>
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -262,7 +262,7 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
           } else {
             phaseRef.current = 'position_check';
             setPhase('position_check');
-            setFormStatus('calibrating');
+            setFormStatus('ready');
             setFeedbackMessage('Hold plank to start...');
           }
         } else {
@@ -377,7 +377,7 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
             } else {
               phaseRef.current = 'position_check';
               setPhase('position_check');
-              setFormStatus('calibrating');
+              setFormStatus('ready');
               setFeedbackMessage('Hold push-up position...');
             }
           } else {

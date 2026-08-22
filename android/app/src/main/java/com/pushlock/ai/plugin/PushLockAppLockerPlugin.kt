@@ -1,16 +1,21 @@
 package com.pushlock.ai.plugin
 
-import android.accessibilityservice.AccessibilityServiceInfo
+import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.provider.Settings
-import android.view.accessibility.AccessibilityManager
+import androidx.core.content.ContextCompat
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
+import com.getcapacitor.annotation.Permission
 import com.pushlock.ai.inventory.AppInventoryManager
 import com.pushlock.ai.service.PushLockAccessibilityService
 import com.pushlock.ai.storage.NativeAppProtectionStore
@@ -20,9 +25,17 @@ import org.json.JSONObject
  * PushLockAppLockerPlugin
  * Native Capacitor Plugin for PushLock AI.
  * Bridges React UI to native Android app inventory, protection storage,
- * and accessibility service app interception.
+ * real permission checking, and accessibility service app interception.
  */
-@CapacitorPlugin(name = "PushLockAppLocker")
+@CapacitorPlugin(
+    name = "PushLockAppLocker",
+    permissions = [
+        Permission(
+            alias = "camera",
+            strings = [Manifest.permission.CAMERA]
+        )
+    ]
+)
 class PushLockAppLockerPlugin : Plugin() {
 
     private lateinit var protectionStore: NativeAppProtectionStore
@@ -116,6 +129,7 @@ class PushLockAppLockerPlugin : Plugin() {
         val appName = call.getString("name", packageName) ?: packageName
         val targetReps = call.getInt("targetReps", 20) ?: 20
         val unlockMinutes = call.getInt("unlockMinutes", 15) ?: 15
+        val rewardSecondsPerRep = call.getInt("rewardSecondsPerRep", 60) ?: 60
         val category = call.getString("category", "custom") ?: "custom"
         val iconName = call.getString("iconName", "shield") ?: "shield"
         val color = call.getString("color", "#16A34A") ?: "#16A34A"
@@ -126,6 +140,7 @@ class PushLockAppLockerPlugin : Plugin() {
                 appName = appName,
                 targetReps = targetReps,
                 unlockMinutes = unlockMinutes,
+                rewardSecondsPerRep = rewardSecondsPerRep,
                 category = category,
                 iconName = iconName,
                 color = color
@@ -306,15 +321,79 @@ class PushLockAppLockerPlugin : Plugin() {
     }
 
     @PluginMethod
-    fun isProtectionServiceEnabled(call: PluginCall) {
-        val isRunning = PushLockAccessibilityService.isServiceRunning()
-        val isEnabledInSettings = isAccessibilitySettingsEnabled(context)
-        val ret = JSObject().apply {
-            put("enabled", isRunning || isEnabledInSettings)
-            put("serviceRunning", isRunning)
-            put("settingsEnabled", isEnabledInSettings)
+    fun checkAllPermissions(call: PluginCall) {
+        try {
+            val cameraGranted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+
+            val overlayGranted = Settings.canDrawOverlays(context)
+            val accessibilityEnabled = isAccessibilitySettingsEnabled(context)
+
+            val manufacturer = Build.MANUFACTURER?.lowercase() ?: ""
+            val isOemRequiringAutoStart = manufacturer.contains("xiaomi") ||
+                    manufacturer.contains("redmi") ||
+                    manufacturer.contains("poco") ||
+                    manufacturer.contains("huawei") ||
+                    manufacturer.contains("honor") ||
+                    manufacturer.contains("oppo") ||
+                    manufacturer.contains("vivo") ||
+                    manufacturer.contains("realme") ||
+                    manufacturer.contains("asus")
+
+            val allRequiredGranted = cameraGranted && overlayGranted && accessibilityEnabled
+
+            val ret = JSObject().apply {
+                put("camera", cameraGranted)
+                put("overlay", overlayGranted)
+                put("accessibility", accessibilityEnabled)
+                put("isOemRequiringAutoStart", isOemRequiringAutoStart)
+                put("manufacturer", Build.MANUFACTURER ?: "Unknown")
+                put("allRequiredGranted", allRequiredGranted)
+            }
+            call.resolve(ret)
+        } catch (e: Exception) {
+            call.reject("Failed to check permissions: ${e.message}", e)
         }
-        call.resolve(ret)
+    }
+
+    @PluginMethod
+    fun requestCameraPermission(call: PluginCall) {
+        try {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                val ret = JSObject().apply { put("granted", true) }
+                call.resolve(ret)
+                return
+            }
+
+            requestPermissionForAlias("camera", call, "cameraPermissionCallback")
+        } catch (e: Exception) {
+            call.reject("Failed to request camera permission: ${e.message}", e)
+        }
+    }
+
+    @PluginMethod
+    fun requestOverlayPermission(call: PluginCall) {
+        try {
+            if (Settings.canDrawOverlays(context)) {
+                val ret = JSObject().apply { put("granted", true) }
+                call.resolve(ret)
+                return
+            }
+
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:${context.packageName}")
+            ).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            val ret = JSObject().apply { put("success", true) }
+            call.resolve(ret)
+        } catch (e: Exception) {
+            call.reject("Failed to request overlay permission: ${e.message}", e)
+        }
     }
 
     @PluginMethod
@@ -329,6 +408,82 @@ class PushLockAppLockerPlugin : Plugin() {
         } catch (e: Exception) {
             call.reject("Failed to open accessibility settings: ${e.message}", e)
         }
+    }
+
+    @PluginMethod
+    fun openAutoStartSettings(call: PluginCall) {
+        try {
+            val manufacturer = Build.MANUFACTURER?.lowercase() ?: ""
+            var intent: Intent? = null
+
+            when {
+                manufacturer.contains("xiaomi") || manufacturer.contains("redmi") || manufacturer.contains("poco") -> {
+                    intent = Intent().apply {
+                        component = ComponentName(
+                            "com.miui.securitycenter",
+                            "com.miui.permcenter.autostart.AutoStartManagementActivity"
+                        )
+                    }
+                }
+                manufacturer.contains("oppo") -> {
+                    intent = Intent().apply {
+                        component = ComponentName(
+                            "com.coloros.safecenter",
+                            "com.coloros.safecenter.permission.startup.StartupAppListActivity"
+                        )
+                    }
+                }
+                manufacturer.contains("vivo") -> {
+                    intent = Intent().apply {
+                        component = ComponentName(
+                            "com.iqoo.secure",
+                            "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"
+                        )
+                    }
+                }
+                manufacturer.contains("huawei") || manufacturer.contains("honor") -> {
+                    intent = Intent().apply {
+                        component = ComponentName(
+                            "com.huawei.systemmanager",
+                            "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
+                        )
+                    }
+                }
+            }
+
+            if (intent != null) {
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                if (context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) != null) {
+                    context.startActivity(intent)
+                    call.resolve(JSObject().apply { put("success", true) })
+                    return
+                }
+            }
+
+            // Fallback to app details settings
+            val appDetailsIntent = Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${context.packageName}")
+            ).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(appDetailsIntent)
+            call.resolve(JSObject().apply { put("success", true) })
+        } catch (e: Exception) {
+            call.reject("Failed to open AutoStart settings: ${e.message}", e)
+        }
+    }
+
+    @PluginMethod
+    fun isProtectionServiceEnabled(call: PluginCall) {
+        val isRunning = PushLockAccessibilityService.isServiceRunning()
+        val isEnabledInSettings = isAccessibilitySettingsEnabled(context)
+        val ret = JSObject().apply {
+            put("enabled", isRunning || isEnabledInSettings)
+            put("serviceRunning", isRunning)
+            put("settingsEnabled", isEnabledInSettings)
+        }
+        call.resolve(ret)
     }
 
     @PluginMethod

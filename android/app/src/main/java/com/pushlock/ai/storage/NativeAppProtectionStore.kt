@@ -100,6 +100,7 @@ class NativeAppProtectionStore private constructor(context: Context) {
         appName: String,
         targetReps: Int,
         unlockMinutes: Int,
+        rewardSecondsPerRep: Int = 60,
         category: String = "custom",
         iconName: String = "shield",
         color: String = "#16A34A"
@@ -115,9 +116,16 @@ class NativeAppProtectionStore private constructor(context: Context) {
             put("unlockUntil", 0L)
         }
 
+        val calculatedMinutes = if (rewardSecondsPerRep > 0 && targetReps > 0) {
+            Math.max(1, (targetReps * rewardSecondsPerRep + 59) / 60)
+        } else {
+            unlockMinutes
+        }
+
         appObj.put("name", appName)
         appObj.put("targetReps", targetReps)
-        appObj.put("unlockMinutes", unlockMinutes)
+        appObj.put("rewardSecondsPerRep", rewardSecondsPerRep)
+        appObj.put("unlockMinutes", calculatedMinutes)
         appObj.put("category", category)
         appObj.put("iconName", iconName)
         appObj.put("color", color)

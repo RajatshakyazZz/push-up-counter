@@ -3,13 +3,12 @@
 import React from 'react';
 import {
   X,
-  Sliders,
   Volume2,
   Mic,
-  Eye,
   ShieldAlert,
   RotateCcw,
   Timer,
+  Settings,
 } from 'lucide-react';
 import { PushUpSettings } from '@/types/fitness';
 import { DEFAULT_SETTINGS } from '@/hooks/usePushUpTracker';
@@ -42,11 +41,11 @@ export function SettingsModal({
         <div className="flex items-center justify-between border-b border-gray-100 pb-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
-              <Sliders className="h-5 w-5" />
+              <Settings className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-base font-black text-gray-900 tracking-tight">Push-Up Calibration</h3>
-              <p className="text-xs text-gray-500">Biomechanical angle limits & HUD controls</p>
+              <h3 className="text-base font-black text-gray-900 tracking-tight">Workout Preferences</h3>
+              <p className="text-xs text-gray-500">Audio cues, buffer timers, and strict mode</p>
             </div>
           </div>
 
@@ -62,178 +61,100 @@ export function SettingsModal({
           </button>
         </div>
 
-        {/* Section 1: Angle Calibration */}
+        {/* Section: Controls & Audio */}
         <div className="space-y-3">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-            Biomechanical Thresholds
-          </h4>
-
-          {/* Up (Lockout) Angle */}
-          <div className="space-y-2 rounded-2xl bg-gray-50 border border-gray-200/80 p-4">
-            <div className="flex justify-between text-xs">
-              <span className="font-bold text-gray-800">Top Position (Arm Lockout)</span>
-              <span className="font-mono font-bold text-emerald-700">
-                {settings.upAngleThreshold}°
+          {/* Countdown Buffer Timer */}
+          <div className="p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Timer className="h-4 w-4 text-emerald-600" />
+                <div>
+                  <div className="text-xs font-bold text-gray-900">Pre-Workout Buffer</div>
+                  <div className="text-[11px] text-gray-500">Delay to place phone on floor</div>
+                </div>
+              </div>
+              <span className="text-xs font-mono font-bold text-emerald-700">
+                {settings.countdownSeconds === 0 ? 'Instant' : `${settings.countdownSeconds}s`}
               </span>
             </div>
-            <p className="text-[11px] text-gray-500">
-              Elbow angle required to trigger start and completion of each rep (recommended: 152°).
-            </p>
-            <input
-              type="range"
-              min="140"
-              max="170"
-              step="1"
-              value={settings.upAngleThreshold}
-              onChange={(e) =>
-                onUpdateSettings({ upAngleThreshold: Number(e.target.value) })
-              }
-              className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-600 mt-2"
-            />
-          </div>
 
-          {/* Down (Depth) Angle */}
-          <div className="space-y-2 rounded-2xl bg-gray-50 border border-gray-200/80 p-4">
-            <div className="flex justify-between text-xs">
-              <span className="font-bold text-gray-800">Bottom Position (Target Depth)</span>
-              <span className="font-mono font-bold text-emerald-700">
-                {settings.downAngleThreshold}°
-              </span>
+            <div className="grid grid-cols-4 gap-1.5 pt-1">
+              {[
+                { value: 0, label: 'Off' },
+                { value: 3, label: '3 sec' },
+                { value: 5, label: '5 sec' },
+                { value: 10, label: '10 sec' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  id={`settings-countdown-${opt.value}`}
+                  onClick={() => {
+                    triggerHaptic('click');
+                    onUpdateSettings({ countdownSeconds: opt.value });
+                  }}
+                  className={`py-1.5 px-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer border ${
+                    (settings.countdownSeconds ?? 5) === opt.value
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
-            <p className="text-[11px] text-gray-500">
-              Maximum elbow angle allowed for a valid chest-to-floor depth (recommended: 92°).
-            </p>
-            <input
-              type="range"
-              min="75"
-              max="105"
-              step="1"
-              value={settings.downAngleThreshold}
-              onChange={(e) =>
-                onUpdateSettings({ downAngleThreshold: Number(e.target.value) })
-              }
-              className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-600 mt-2"
-            />
           </div>
-        </div>
 
-        {/* Section 2: HUD & Feedback Toggles */}
-        <div className="space-y-3 pt-2 border-t border-gray-100">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-            Audio & HUD Overlays
-          </h4>
-
-          <div className="space-y-2">
-            {/* Countdown Buffer Timer */}
-            <div className="p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <Timer className="h-4 w-4 text-emerald-600" />
-                  <div>
-                    <div className="text-xs font-bold text-gray-900">Pre-Workout Buffer</div>
-                    <div className="text-[11px] text-gray-500">Delay to get into plank position</div>
-                  </div>
-                </div>
-                <span className="text-xs font-mono font-bold text-emerald-700">
-                  {settings.countdownSeconds === 0 ? 'Instant' : `${settings.countdownSeconds}s`}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-4 gap-1.5 pt-1">
-                {[
-                  { value: 0, label: 'Off' },
-                  { value: 3, label: '3 sec' },
-                  { value: 5, label: '5 sec' },
-                  { value: 10, label: '10 sec' },
-                ].map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    id={`settings-countdown-${opt.value}`}
-                    onClick={() => {
-                      triggerHaptic('click');
-                      onUpdateSettings({ countdownSeconds: opt.value });
-                    }}
-                    className={`py-1.5 px-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer border ${
-                      (settings.countdownSeconds ?? 5) === opt.value
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                        : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+          {/* Voice Coach */}
+          <label className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 cursor-pointer">
+            <div className="flex items-center gap-2.5">
+              <Mic className="h-4 w-4 text-emerald-600" />
+              <div>
+                <div className="text-xs font-bold text-gray-900">Voice Coach</div>
+                <div className="text-[11px] text-gray-500">Speaks verified rep counts</div>
               </div>
             </div>
+            <input
+              type="checkbox"
+              checked={settings.voiceAnnounce}
+              onChange={(e) => onUpdateSettings({ voiceAnnounce: e.target.checked })}
+              className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+            />
+          </label>
 
-            {/* Voice Announcement */}
-            <label className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 cursor-pointer">
-              <div className="flex items-center gap-2.5">
-                <Mic className="h-4 w-4 text-emerald-600" />
-                <div>
-                  <div className="text-xs font-bold text-gray-900">Voice Coach</div>
-                  <div className="text-[11px] text-gray-500">Speaks rep counts and coaching cues</div>
-                </div>
+          {/* Sound FX */}
+          <label className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 cursor-pointer">
+            <div className="flex items-center gap-2.5">
+              <Volume2 className="h-4 w-4 text-emerald-600" />
+              <div>
+                <div className="text-xs font-bold text-gray-900">Sound Effects</div>
+                <div className="text-[11px] text-gray-500">Acoustic chimes on rep completion</div>
               </div>
-              <input
-                type="checkbox"
-                checked={settings.voiceAnnounce}
-                onChange={(e) => onUpdateSettings({ voiceAnnounce: e.target.checked })}
-                className="h-4 w-4 accent-emerald-600 rounded cursor-pointer"
-              />
-            </label>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.soundEffects}
+              onChange={(e) => onUpdateSettings({ soundEffects: e.target.checked })}
+              className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+            />
+          </label>
 
-            {/* Sound FX */}
-            <label className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 cursor-pointer">
-              <div className="flex items-center gap-2.5">
-                <Volume2 className="h-4 w-4 text-emerald-600" />
-                <div>
-                  <div className="text-xs font-bold text-gray-900">Sound Effects</div>
-                  <div className="text-[11px] text-gray-500">Acoustic chimes on depth and lockout</div>
-                </div>
+          {/* Strict Form Gate */}
+          <label className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 cursor-pointer">
+            <div className="flex items-center gap-2.5">
+              <ShieldAlert className="h-4 w-4 text-emerald-600" />
+              <div>
+                <div className="text-xs font-bold text-gray-900">Strict Form Mode</div>
+                <div className="text-[11px] text-gray-500">Reject reps if spine sags or bends</div>
               </div>
-              <input
-                type="checkbox"
-                checked={settings.soundEffects}
-                onChange={(e) => onUpdateSettings({ soundEffects: e.target.checked })}
-                className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
-              />
-            </label>
-
-            {/* Developer Debug HUD */}
-            <label className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 cursor-pointer">
-              <div className="flex items-center gap-2.5">
-                <Sliders className="h-4 w-4 text-purple-600" />
-                <div>
-                  <div className="text-xs font-bold text-gray-900">Developer Debug HUD</div>
-                  <div className="text-[11px] text-gray-500">Show real-time angle & state diagnostics</div>
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={!!settings.debugMode}
-                onChange={(e) => onUpdateSettings({ debugMode: e.target.checked })}
-                className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
-              />
-            </label>
-
-            {/* Strict Form Gate */}
-            <label className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 cursor-pointer">
-              <div className="flex items-center gap-2.5">
-                <ShieldAlert className="h-4 w-4 text-emerald-600" />
-                <div>
-                  <div className="text-xs font-bold text-gray-900">Strict Form Mode</div>
-                  <div className="text-[11px] text-gray-500">Reject reps if spine sags or bends</div>
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={!!settings.strictMode}
-                onChange={(e) => onUpdateSettings({ strictMode: e.target.checked })}
-                className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
-              />
-            </label>
-          </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={!!settings.strictMode}
+              onChange={(e) => onUpdateSettings({ strictMode: e.target.checked })}
+              className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+            />
+          </label>
         </div>
 
         {/* Footer */}
