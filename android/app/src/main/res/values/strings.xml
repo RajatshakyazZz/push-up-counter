@@ -4,4 +4,6 @@
     <string name="title_activity_main">PushLock AI</string>
     <string name="package_name">com.pushlock.ai</string>
     <string name="custom_url_scheme">com.pushlock.ai</string>
+    <string name="accessibility_service_label">PushLock AI App Protection</string>
+    <string name="accessibility_service_description">Detects when your protected apps are opened to require push-up completion before granting screen time. PushLock AI does NOT read window content, passwords, or personal data.</string>
 </resources>

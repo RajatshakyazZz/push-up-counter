@@ -31,6 +31,8 @@ import { triggerHaptic } from '@/lib/haptics';
 interface SettingsViewProps {
   settings: PushUpSettings;
   protectionSettings: AppProtectionSettings;
+  isProtectionEnabled?: boolean;
+  onOpenConsentModal?: () => void;
   onUpdateSettings: (newSettings: Partial<PushUpSettings>) => void;
   onUpdateProtectionSettings: (newSettings: Partial<AppProtectionSettings>) => void;
   onResetAllData?: () => void;
@@ -39,6 +41,8 @@ interface SettingsViewProps {
 export function SettingsView({
   settings,
   protectionSettings,
+  isProtectionEnabled = false,
+  onOpenConsentModal,
   onUpdateSettings,
   onUpdateProtectionSettings,
   onResetAllData,
@@ -261,40 +265,42 @@ export function SettingsView({
         </div>
 
         <div className="space-y-2.5">
+          {/* 1. Accessibility Service */}
           <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80">
             <div className="flex items-center gap-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              {isProtectionEnabled ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+              )}
               <div>
                 <div className="text-xs font-bold text-gray-900">
-                  Usage Access (android.permission.PACKAGE_USAGE_STATS)
+                  Accessibility App Protection Service
                 </div>
                 <div className="text-[11px] text-gray-500">
-                  Detects when protected apps (Instagram, YouTube) are opened in foreground
+                  Detects when protected apps are opened in foreground (0ms latency, 0 window content reading)
                 </div>
               </div>
             </div>
-            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
-              Ready
-            </span>
+            {isProtectionEnabled ? (
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full shrink-0">
+                Active
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('click');
+                  if (onOpenConsentModal) onOpenConsentModal();
+                }}
+                className="text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1 rounded-xl transition-all cursor-pointer shrink-0"
+              >
+                Enable
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80">
-            <div className="flex items-center gap-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-              <div>
-                <div className="text-xs font-bold text-gray-900">
-                  Display Over Other Apps (SYSTEM_ALERT_WINDOW)
-                </div>
-                <div className="text-[11px] text-gray-500">
-                  Displays the PushLock push-up verification lock screen overlay
-                </div>
-              </div>
-            </div>
-            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
-              Ready
-            </span>
-          </div>
-
+          {/* 2. Camera Permission */}
           <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80">
             <div className="flex items-center gap-3">
               <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
@@ -303,11 +309,29 @@ export function SettingsView({
                   Camera (android.permission.CAMERA)
                 </div>
                 <div className="text-[11px] text-gray-500">
-                  High-speed 60fps on-device pose estimation
+                  High-speed 60fps local GPU MediaPipe pose estimation
                 </div>
               </div>
             </div>
-            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
+            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full shrink-0">
+              Ready
+            </span>
+          </div>
+
+          {/* 3. Launcher App Inventory Visibility */}
+          <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <div>
+                <div className="text-xs font-bold text-gray-900">
+                  Launcher Package Visibility (CATEGORY_LAUNCHER)
+                </div>
+                <div className="text-[11px] text-gray-500">
+                  Queries user-installed launchable apps without broad permissions
+                </div>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full shrink-0">
               Ready
             </span>
           </div>

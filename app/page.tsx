@@ -16,6 +16,7 @@ import { AppConfigModal } from '@/components/AppConfigModal';
 import { WorkoutSummaryModal } from '@/components/WorkoutSummaryModal';
 import { ExerciseGuideModal } from '@/components/ExerciseGuideModal';
 import { SettingsModal } from '@/components/SettingsModal';
+import { AccessibilityConsentModal } from '@/components/AccessibilityConsentModal';
 
 import { usePoseDetector } from '@/hooks/usePoseDetector';
 import { usePushUpTracker } from '@/hooks/usePushUpTracker';
@@ -23,6 +24,7 @@ import { PoseAnalysis } from '@/lib/pose-math';
 import { androidAppLocker } from '@/lib/native-bridge/androidAppLocker';
 import {
   ProtectedApp,
+  InstalledApp,
   UnlockSession,
   WorkoutSessionLog,
   AppProtectionSettings,
@@ -33,10 +35,11 @@ export default function PushLockApp() {
   // Navigation
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
 
-  // PushLock State from Native Bridge / Storage (using lazy initializers to avoid effect setState)
+  // PushLock State from Native Bridge / Storage
   const [protectedApps, setProtectedApps] = useState<ProtectedApp[]>(() =>
     androidAppLocker.getProtectedApps()
   );
+  const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
   const [activeSessions, setActiveSessions] = useState<UnlockSession[]>(() =>
     androidAppLocker.getActiveUnlockSessions()
   );
@@ -46,6 +49,7 @@ export default function PushLockApp() {
   const [protectionSettings, setProtectionSettings] = useState<AppProtectionSettings>(() =>
     androidAppLocker.getProtectionSettings()
   );
+  const [isProtectionEnabled, setIsProtectionEnabled] = useState<boolean>(true);
 
   // App Locker Modals
   const [selectedAppForLock, setSelectedAppForLock] = useState<ProtectedApp | null>(null);
@@ -53,6 +57,7 @@ export default function PushLockApp() {
   const [selectedAppForEdit, setSelectedAppForEdit] = useState<ProtectedApp | null>(null);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [isAddingNewApp, setIsAddingNewApp] = useState(false);
+  const [isConsentModalOpen, setIsConsentModalOpen] = useState(false);
 
   // Active Unlocking Session State
   const [activeUnlockingApp, setActiveUnlockingApp] = useState<ProtectedApp | null>(null);
@@ -62,10 +67,75 @@ export default function PushLockApp() {
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Periodic active unlock session sync
+  // Initial Data & Real Native Discovery on Mount
   useEffect(() => {
-    const interval = setInterval(() => {
+    let isMounted = true;
+
+    async function loadNativeData() {
+      // 1. Fetch real installed launcher apps from Android
+      try {
+        const apps = await androidAppLocker.getInstalledApps();
+        if (isMounted && apps?.length > 0) {
+          setInstalledApps(apps);
+        }
+      } catch (e) {
+        console.error('Failed to load installed apps:', e);
+      }
+
+      // 2. Fetch protected apps from Native Store
+      try {
+        const prot = await androidAppLocker.getProtectedAppsAsync();
+        if (isMounted && prot?.length > 0) {
+          setProtectedApps(prot);
+        }
+      } catch (e) {
+        console.error('Failed to load protected apps:', e);
+      }
+
+      // 3. Check Accessibility Service Status
+      try {
+        const enabled = await androidAppLocker.isProtectionServiceEnabled();
+        if (isMounted) {
+          setIsProtectionEnabled(enabled);
+        }
+      } catch (e) {
+        console.error('Failed to check protection service:', e);
+      }
+
+      // 4. Check for any pending lock trigger intent (e.g. app opened while PushLock was backgrounded)
+      try {
+        const pending = await androidAppLocker.checkPendingLockTrigger();
+        if (isMounted && pending) {
+          setSelectedAppForLock(pending);
+          setIsLockModalOpen(true);
+        }
+      } catch (e) {
+        console.error('Failed to check pending lock trigger:', e);
+      }
+    }
+
+    loadNativeData();
+
+    // 5. Subscribe to real-time Android lock triggers
+    const unsubscribeLockTrigger = androidAppLocker.onLockTriggered((lockedApp) => {
+      if (isMounted && lockedApp) {
+        setSelectedAppForLock(lockedApp);
+        setIsLockModalOpen(true);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribeLockTrigger();
+    };
+  }, []);
+
+  // Periodic active unlock session & service status sync
+  useEffect(() => {
+    const interval = setInterval(async () => {
       setActiveSessions(androidAppLocker.getActiveUnlockSessions());
+      const enabled = await androidAppLocker.isProtectionServiceEnabled();
+      setIsProtectionEnabled(enabled);
     }, 2000);
     return () => clearInterval(interval);
   }, []);
@@ -127,11 +197,12 @@ export default function PushLockApp() {
       prevRepsRef.current < activeUnlockingApp.targetReps &&
       stats.isActive
     ) {
-      // Complete app unlock via bridge
+      // Complete app unlock natively (do not auto-launch immediately so user sees the celebration modal)
       androidAppLocker.unlockApp(
         activeUnlockingApp.packageName,
         activeUnlockingApp.unlockMinutes,
-        stats.totalReps
+        stats.totalReps,
+        false
       );
 
       // Refresh storage states
@@ -174,17 +245,24 @@ export default function PushLockApp() {
   };
 
   // Handler: Instant unlock test for demo purposes
-  const handleInstantUnlockTest = (app: ProtectedApp) => {
+  const handleInstantUnlockTest = async (app: ProtectedApp) => {
     setIsLockModalOpen(false);
-    androidAppLocker.unlockApp(app.packageName, app.unlockMinutes, app.targetReps);
+    await androidAppLocker.unlockApp(app.packageName, app.unlockMinutes, app.targetReps, false);
     setProtectedApps(androidAppLocker.getProtectedApps());
     setActiveSessions(androidAppLocker.getActiveUnlockSessions());
     setWorkoutHistory(androidAppLocker.getWorkoutHistory());
   };
 
+  // Handler: Launch the unlocked app immediately from celebration modal
+  const handleOpenUnlockedApp = async (app: ProtectedApp) => {
+    setIsSummaryOpen(false);
+    setActiveUnlockingApp(null);
+    await androidAppLocker.launchApp(app.packageName);
+  };
+
   // Handler: Relock an app
-  const handleRelockApp = (packageName: string) => {
-    androidAppLocker.lockApp(packageName);
+  const handleRelockApp = async (packageName: string) => {
+    await androidAppLocker.lockApp(packageName);
     setActiveSessions(androidAppLocker.getActiveUnlockSessions());
   };
 
@@ -194,8 +272,8 @@ export default function PushLockApp() {
   };
 
   // Handler: Toggle Protection for an app
-  const handleToggleProtection = (packageName: string, isProtected: boolean) => {
-    androidAppLocker.toggleProtection(packageName, isProtected);
+  const handleToggleProtection = async (packageName: string, isProtected: boolean) => {
+    await androidAppLocker.toggleProtection(packageName, isProtected);
     setProtectedApps(androidAppLocker.getProtectedApps());
   };
 
@@ -212,8 +290,28 @@ export default function PushLockApp() {
     setIsConfigModalOpen(true);
   };
 
-  const handleSaveAppConfig = (updatedApp: ProtectedApp) => {
-    androidAppLocker.protectApp(
+  const handleProtectInstalledApp = (installedApp: InstalledApp) => {
+    setSelectedAppForEdit({
+      id: `installed-${installedApp.packageName}`,
+      packageName: installedApp.packageName,
+      name: installedApp.name,
+      category: installedApp.category,
+      iconName: installedApp.iconName,
+      color: installedApp.color,
+      iconDataUri: installedApp.iconDataUri,
+      targetReps: 20,
+      unlockMinutes: 15,
+      isProtected: true,
+      timesUnlockedToday: 0,
+      totalUnlocks: 0,
+      lastUnlockedAt: null,
+    });
+    setIsAddingNewApp(false);
+    setIsConfigModalOpen(true);
+  };
+
+  const handleSaveAppConfig = async (updatedApp: ProtectedApp) => {
+    await androidAppLocker.protectApp(
       updatedApp.packageName,
       updatedApp.name,
       updatedApp.targetReps,
@@ -225,8 +323,8 @@ export default function PushLockApp() {
     setProtectedApps(androidAppLocker.getProtectedApps());
   };
 
-  const handleDeleteApp = (packageName: string) => {
-    androidAppLocker.deleteApp(packageName);
+  const handleDeleteApp = async (packageName: string) => {
+    await androidAppLocker.deleteApp(packageName);
     setProtectedApps(androidAppLocker.getProtectedApps());
   };
 
@@ -330,11 +428,15 @@ export default function PushLockApp() {
         {activeTab === 'apps' && (
           <AppLockerView
             protectedApps={protectedApps}
+            installedApps={installedApps}
             activeSessions={activeSessions}
+            isProtectionEnabled={isProtectionEnabled}
+            onOpenConsentModal={() => setIsConsentModalOpen(true)}
             onToggleProtection={handleToggleProtection}
             onOpenLockModal={handleOpenLockModal}
             onEditApp={handleEditApp}
             onAddNewApp={handleAddNewApp}
+            onProtectInstalledApp={handleProtectInstalledApp}
           />
         )}
 
@@ -443,6 +545,8 @@ export default function PushLockApp() {
           <SettingsView
             settings={settings}
             protectionSettings={protectionSettings}
+            isProtectionEnabled={isProtectionEnabled}
+            onOpenConsentModal={() => setIsConsentModalOpen(true)}
             onUpdateSettings={updateSettings}
             onUpdateProtectionSettings={(newSet) => {
               const updated = androidAppLocker.saveProtectionSettings(newSet);
@@ -499,6 +603,7 @@ export default function PushLockApp() {
           setActiveUnlockingApp(null);
         }}
         onRestart={handleRestartWorkout}
+        onOpenApp={handleOpenUnlockedApp}
       />
 
       {/* Exercise Biomechanics Form Guide Modal */}
@@ -513,6 +618,16 @@ export default function PushLockApp() {
         settings={settings}
         onClose={() => setIsSettingsOpen(false)}
         onUpdateSettings={updateSettings}
+      />
+
+      {/* Affirmative Accessibility Consent Modal */}
+      <AccessibilityConsentModal
+        isOpen={isConsentModalOpen}
+        onClose={() => setIsConsentModalOpen(false)}
+        onConfirmEnable={() => {
+          setIsConsentModalOpen(false);
+          androidAppLocker.openProtectionSettings();
+        }}
       />
     </div>
   );

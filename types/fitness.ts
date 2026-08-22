@@ -102,7 +102,11 @@ export interface InstalledApp {
   category: AppCategory;
   iconName: string;
   color: string;
+  iconDataUri?: string;
   isSystem?: boolean;
+  isProtected?: boolean;
+  targetReps?: number;
+  unlockMinutes?: number;
 }
 
 export interface ProtectedApp {
@@ -112,6 +116,7 @@ export interface ProtectedApp {
   category: AppCategory;
   iconName: string;
   color: string;
+  iconDataUri?: string;
   targetReps: number;
   unlockMinutes: number;
   isProtected: boolean;

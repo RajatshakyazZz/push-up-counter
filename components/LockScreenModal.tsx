@@ -76,6 +76,7 @@ export function LockScreenModal({
               iconName={app.iconName}
               name={app.name}
               color={app.color}
+              iconDataUri={app.iconDataUri}
               size="xl"
               className="shadow-xl ring-4 ring-gray-50"
             />

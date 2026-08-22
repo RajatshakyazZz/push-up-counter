@@ -18,14 +18,15 @@ import {
 } from 'lucide-react';
 
 interface AppIconProps {
-  iconName: string;
-  name: string;
+  iconName?: string;
+  name?: string;
   color?: string;
+  iconDataUri?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
 }
 
-export function AppIcon({ iconName, name, color, size = 'md', className = '' }: AppIconProps) {
+export function AppIcon({ iconName = '', name = '', color, iconDataUri, size = 'md', className = '' }: AppIconProps) {
   const sizeMap = {
     sm: 'w-7 h-7 text-xs rounded-xl p-1.5',
     md: 'w-10 h-10 text-sm rounded-2xl p-2',
@@ -77,6 +78,21 @@ export function AppIcon({ iconName, name, color, size = 'md', className = '' }: 
 
   const bg = getBackgroundColor();
   const isGradient = bg.startsWith('linear-gradient');
+
+  if (iconDataUri) {
+    return (
+      <div
+        className={`inline-flex items-center justify-center shrink-0 shadow-sm overflow-hidden bg-white ${sizeMap[size]} ${className}`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={iconDataUri}
+          alt={name || 'App icon'}
+          className="w-full h-full object-contain"
+        />
+      </div>
+    );
+  }
 
   return (
     <div

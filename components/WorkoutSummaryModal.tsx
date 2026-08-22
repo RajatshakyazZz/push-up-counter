@@ -25,6 +25,7 @@ interface WorkoutSummaryModalProps {
   unlockedApp?: ProtectedApp | null;
   onClose: () => void;
   onRestart: () => void;
+  onOpenApp?: (app: ProtectedApp) => void;
 }
 
 export function WorkoutSummaryModal({
@@ -35,6 +36,7 @@ export function WorkoutSummaryModal({
   unlockedApp,
   onClose,
   onRestart,
+  onOpenApp,
 }: WorkoutSummaryModalProps) {
   const [copied, setCopied] = React.useState(false);
 
@@ -188,36 +190,51 @@ export function WorkoutSummaryModal({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            id="summary-restart-btn"
-            onClick={() => {
-              triggerHaptic('click');
-              onRestart();
-            }}
-            className="flex-1 min-h-[48px] inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-xs font-black uppercase text-white hover:bg-emerald-700 active:scale-[0.98] transition-all cursor-pointer shadow-md shadow-emerald-600/20"
-          >
-            <RotateCcw className="h-4 w-4" />
-            <span>Start New Session</span>
-          </button>
+        <div className="flex flex-col gap-2.5 pt-2">
+          {unlockedApp && onOpenApp && (
+            <button
+              onClick={() => {
+                triggerHaptic('success');
+                onOpenApp(unlockedApp);
+              }}
+              className="w-full min-h-[50px] inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-sm font-black uppercase text-white hover:bg-emerald-700 active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-emerald-600/25"
+            >
+              <Unlock className="h-4 w-4" />
+              <span>Open {unlockedApp.name} Now</span>
+            </button>
+          )}
 
-          <button
-            id="summary-share-btn"
-            onClick={handleShare}
-            className="inline-flex min-h-[48px] items-center justify-center gap-1.5 rounded-2xl bg-gray-100 border border-gray-200 px-5 text-xs font-bold text-gray-700 hover:text-gray-900 hover:bg-gray-200 transition-colors cursor-pointer"
-          >
-            {copied ? (
-              <>
-                <Check className="h-4 w-4 text-emerald-600" />
-                <span className="text-emerald-700">Copied!</span>
-              </>
-            ) : (
-              <>
-                <Share2 className="h-4 w-4" />
-                <span>Share</span>
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              id="summary-restart-btn"
+              onClick={() => {
+                triggerHaptic('click');
+                onRestart();
+              }}
+              className="flex-1 min-h-[48px] inline-flex items-center justify-center gap-2 rounded-2xl bg-gray-100 border border-gray-200 text-xs font-bold text-gray-800 hover:bg-gray-200 active:scale-[0.98] transition-all cursor-pointer"
+            >
+              <RotateCcw className="h-4 w-4" />
+              <span>Start New Workout</span>
+            </button>
+
+            <button
+              id="summary-share-btn"
+              onClick={handleShare}
+              className="inline-flex min-h-[48px] items-center justify-center gap-1.5 rounded-2xl bg-gray-100 border border-gray-200 px-5 text-xs font-bold text-gray-700 hover:text-gray-900 hover:bg-gray-200 transition-colors cursor-pointer"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-4 w-4 text-emerald-600" />
+                  <span className="text-emerald-700">Copied!</span>
+                </>
+              ) : (
+                <>
+                  <Share2 className="h-4 w-4" />
+                  <span>Share</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

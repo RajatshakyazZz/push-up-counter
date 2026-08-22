@@ -74,29 +74,28 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
   - `pushlock_protection_settings`: Global protection settings.
   - `pushlock_settings`: Pose detection thresholds and audio/voice toggles.
 
-### B. Native Android Platform (Capacitor 8.5.0)
+### B. Native Android Platform (Capacitor 8.5.0 + Kotlin)
 - **Framework**: `@capacitor/core`, `@capacitor/cli`, `@capacitor/android` v8.5.0.
 - **Config**: `capacitor.config.ts` (appId: `com.pushlock.ai`, appName: `PushLock AI`, webDir: `out`).
 - **Static Export**: Next.js 15 configured with `output: 'export'` and `images.unoptimized: true` generating standalone assets into `out/` and synced to `android/app/src/main/assets/public`.
-- **Native Android Structure**: Android Gradle project initialized in `/android` targeting Android SDK 36, Java 21, and AndroidX libraries.
-- **Camera Permission**: Added `<uses-permission android:name="android.permission.CAMERA" />` in `android/app/src/main/AndroidManifest.xml` for real-time video capture in Capacitor WebView.
-- **Debug APK Location**: `android/app/build/outputs/apk/debug/app-debug.apk` (4.4 MB).
+- **Native Android Structure**: Android Gradle project initialized in `/android` targeting Android SDK 36, Java 21 LTS, and Kotlin 2.0.21.
+- **App Inventory (`AppInventoryManager.kt`)**: Real installed application discovery using `Intent.ACTION_MAIN` and `Intent.CATEGORY_LAUNCHER` with downsampled 96x96 Base64 LRU icon caching.
+- **Native Storage (`NativeAppProtectionStore.kt`)**: SharedPreferences-backed single source of truth for protection configurations and absolute `unlockUntil` timestamps.
+- **Foreground Detection (`PushLockAccessibilityService.kt`)**: Zero-latency `TYPE_WINDOW_STATE_CHANGED` interception with `canRetrieveWindowContent="false"` and `isAccessibilityTool="false"`.
+- **Continuous Foreground Re-lock**: Uses scheduled Handler timers so protected apps re-lock immediately upon `unlockUntil` expiry even if the user never leaves the application.
+- **Native Bridge Plugin (`PushLockAppLockerPlugin.kt`)**: Exposes methods and live `appLockTriggered` event listeners directly to React.
+- **Camera Permission**: Configured `<uses-permission android:name="android.permission.CAMERA" />` in `android/app/src/main/AndroidManifest.xml`.
+- **Debug APK Location**: `android/app/build/outputs/apk/debug/app-debug.apk` (4.5 MB).
 
-### C. Native Android Roadmap (Next Steps)
-- **Plugin Bridge**: `@CapacitorPlugin(name = "PushLockAppLocker") class PushLockPlugin : Plugin()`.
-- **Foreground App Monitoring**:
-  - `AccessibilityService` (`AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED`) for 0ms latency app launch interception.
-  - `UsageStatsManager` with a background `ForegroundService` as backup.
-- **System Overlay**:
-  - `WindowManager` with `TYPE_APPLICATION_OVERLAY` or high-priority fullscreen lock activity.
+### C. Permissions & Privacy Safeguards
 - **Permissions**:
-  - `android.permission.CAMERA` (Configured)
-  - `android.permission.SYSTEM_ALERT_WINDOW`
-  - `android.permission.PACKAGE_USAGE_STATS`
-  - `android.permission.BIND_ACCESSIBILITY_SERVICE`
-  - `android.permission.FOREGROUND_SERVICE`
-  - `android.permission.RECEIVE_BOOT_COMPLETED`
-  - `android.permission.QUERY_ALL_PACKAGES`
+  - `android.permission.CAMERA` (For MediaPipe local on-device pose estimation)
+  - `android.permission.BIND_ACCESSIBILITY_SERVICE` (For PushLock AI foreground app protection)
+  - `android.permission.REORDER_TASKS` (For smooth task switching)
+- **Privacy Guarantees**:
+  - `canRetrieveWindowContent="false"`: PushLock AI cannot read text, passwords, messages, or screen contents.
+  - Affirmative consent disclosure modal required before directing user to Android Accessibility Settings.
+  - Zero cloud dependencies — 100% on-device local execution.
 
 ---
 

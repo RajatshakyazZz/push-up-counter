@@ -1,3 +1,4 @@
+import { registerPlugin, Capacitor, PluginListenerHandle } from '@capacitor/core';
 import {
   InstalledApp,
   ProtectedApp,
@@ -7,7 +8,50 @@ import {
 } from '@/types/fitness';
 import { triggerHaptic } from '@/lib/haptics';
 
-// Pre-configured app catalogue with clean 0-initial counters
+export interface PushLockAppLockerPluginInterface {
+  getInstalledApps(options?: { includeIcons?: boolean }): Promise<{ apps: InstalledApp[] }>;
+  getProtectedApps(): Promise<{ apps: ProtectedApp[] }>;
+  protectApp(options: {
+    packageName: string;
+    name: string;
+    targetReps: number;
+    unlockMinutes: number;
+    category?: string;
+    iconName?: string;
+    color?: string;
+  }): Promise<ProtectedApp>;
+  unprotectApp(options: { packageName: string }): Promise<{ success: boolean }>;
+  toggleProtection(options: { packageName: string; isProtected: boolean }): Promise<{ success: boolean }>;
+  deleteApp(options: { packageName: string }): Promise<{ success: boolean }>;
+  getProtectionStatus(options: { packageName: string }): Promise<{
+    isProtected: boolean;
+    isLocked: boolean;
+    remainingSeconds: number;
+    app?: ProtectedApp;
+  }>;
+  unlockApp(options: {
+    packageName: string;
+    durationMinutes: number;
+    repsCompleted: number;
+    autoLaunch?: boolean;
+  }): Promise<UnlockSession>;
+  lockApp(options: { packageName: string }): Promise<{ success: boolean }>;
+  getActiveUnlockSessions(): Promise<{ sessions: UnlockSession[] }>;
+  getRemainingUnlockTime(options: { packageName: string }): Promise<{ remainingSeconds: number }>;
+  isProtectionServiceEnabled(): Promise<{ enabled: boolean; serviceRunning: boolean; settingsEnabled: boolean }>;
+  openProtectionSettings(): Promise<{ success: boolean }>;
+  launchApp(options: { packageName: string }): Promise<{ success: boolean }>;
+  getPendingLockTrigger(): Promise<{ hasTrigger: boolean; lockTrigger?: ProtectedApp }>;
+  addListener(
+    eventName: 'appLockTriggered',
+    listenerFunc: (data: ProtectedApp) => void
+  ): Promise<PluginListenerHandle>;
+}
+
+// Register native Capacitor plugin
+const NativeLocker = registerPlugin<PushLockAppLockerPluginInterface>('PushLockAppLocker');
+
+// Pre-configured default demo catalogue for Web preview mode
 export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
   {
     id: 'app-instagram',
@@ -93,34 +137,6 @@ export const DEFAULT_DEMO_APPS: ProtectedApp[] = [
     totalUnlocks: 0,
     lastUnlockedAt: null,
   },
-  {
-    id: 'app-x',
-    packageName: 'com.twitter.android',
-    name: 'X (Twitter)',
-    category: 'social',
-    iconName: 'twitter',
-    color: '#0F1419',
-    targetReps: 15,
-    unlockMinutes: 10,
-    isProtected: false,
-    timesUnlockedToday: 0,
-    totalUnlocks: 0,
-    lastUnlockedAt: null,
-  },
-  {
-    id: 'app-games',
-    packageName: 'com.king.candycrushsaga',
-    name: 'Mobile Games',
-    category: 'gaming',
-    iconName: 'gamepad',
-    color: '#8B5CF6',
-    targetReps: 30,
-    unlockMinutes: 30,
-    isProtected: true,
-    timesUnlockedToday: 0,
-    totalUnlocks: 0,
-    lastUnlockedAt: null,
-  },
 ];
 
 export const DEFAULT_PROTECTION_SETTINGS: AppProtectionSettings = {
@@ -137,24 +153,26 @@ const STORAGE_KEYS = {
   UNLOCK_SESSIONS: 'pushlock_unlock_sessions',
   WORKOUT_HISTORY: 'pushlock_workout_history',
   PROTECTION_SETTINGS: 'pushlock_protection_settings',
-  DAILY_STATS: 'pushlock_daily_stats',
+  INSTALLED_APPS_CACHE: 'pushlock_installed_apps_cache',
 };
 
+type LockTriggerListener = (app: ProtectedApp) => void;
+
 /**
- * Android Native App Locker Bridge Interface
+ * Android Native App Locker Bridge Service
+ * Transparently bridges React to the real Kotlin Native App Locker when running in the Android App,
+ * and maintains a local demo simulation when running in a standard web browser.
  */
 export class AndroidAppLockerService {
   private static instance: AndroidAppLockerService;
-
-  private isAndroidEnvironment: boolean = false;
+  private isNative: boolean = false;
+  private lockTriggerListeners: Set<LockTriggerListener> = new Set();
+  private nativeListenerHandle: PluginListenerHandle | null = null;
 
   private constructor() {
     if (typeof window !== 'undefined') {
-      // Check if running inside Android WebView with Capacitor / PushLock Native Bridge
-      this.isAndroidEnvironment = !!(
-        (window as unknown as { PushLockNative?: unknown }).PushLockNative ||
-        (window as unknown as { AndroidLocker?: unknown }).AndroidLocker
-      );
+      this.isNative = Capacitor.isNativePlatform();
+      this.initNativeListener();
     }
   }
 
@@ -165,18 +183,80 @@ export class AndroidAppLockerService {
     return AndroidAppLockerService.instance;
   }
 
-  /**
-   * Check whether running in native Android container vs web browser/PWA
-   */
-  public isNativeAndroid(): boolean {
-    return this.isAndroidEnvironment;
+  private async initNativeListener() {
+    if (!this.isNative) return;
+    try {
+      this.nativeListenerHandle = await NativeLocker.addListener(
+        'appLockTriggered',
+        (data: ProtectedApp) => {
+          this.lockTriggerListeners.forEach((fn) => fn(data));
+        }
+      );
+    } catch (e) {
+      console.warn('Native lock listener registration failed:', e);
+    }
   }
 
   /**
-   * Returns list of candidate apps. In native Android, queries PackageManager.
-   * In Web Preview, provides standard popular distracting apps labeled as Demo.
+   * Subscribe to native app lock trigger events (when user opens a protected app on Android)
+   */
+  public onLockTriggered(listener: LockTriggerListener): () => void {
+    this.lockTriggerListeners.add(listener);
+    return () => {
+      this.lockTriggerListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Check for any pending lock trigger intent on app resume / mount
+   */
+  public async checkPendingLockTrigger(): Promise<ProtectedApp | null> {
+    if (!this.isNative) return null;
+    try {
+      const res = await NativeLocker.getPendingLockTrigger();
+      if (res.hasTrigger && res.lockTrigger) {
+        return res.lockTrigger;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  public isNativeAndroid(): boolean {
+    return this.isNative;
+  }
+
+  /**
+   * Queries real installed launchable apps on Android or demo list on Web.
    */
   public async getInstalledApps(): Promise<InstalledApp[]> {
+    if (this.isNative) {
+      try {
+        const res = await NativeLocker.getInstalledApps({ includeIcons: true });
+        if (res?.apps?.length > 0) {
+          // Cache in localStorage for quick initial render
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(STORAGE_KEYS.INSTALLED_APPS_CACHE, JSON.stringify(res.apps));
+            } catch {}
+          }
+          return res.apps;
+        }
+      } catch (e) {
+        console.error('Failed to query native installed apps:', e);
+      }
+    }
+
+    // Try cached apps
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem(STORAGE_KEYS.INSTALLED_APPS_CACHE);
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+
+    // Web preview fallback
     return [
       { packageName: 'com.instagram.android', name: 'Instagram', category: 'social', iconName: 'instagram', color: '#E1306C' },
       { packageName: 'com.google.android.youtube', name: 'YouTube', category: 'entertainment', iconName: 'youtube', color: '#FF0000' },
@@ -185,15 +265,27 @@ export class AndroidAppLockerService {
       { packageName: 'com.reddit.frontpage', name: 'Reddit', category: 'social', iconName: 'reddit', color: '#FF4500' },
       { packageName: 'com.facebook.katana', name: 'Facebook', category: 'social', iconName: 'facebook', color: '#1877F2' },
       { packageName: 'com.twitter.android', name: 'X (Twitter)', category: 'social', iconName: 'twitter', color: '#0F1419' },
-      { packageName: 'com.netflix.mediaclient', name: 'Netflix', category: 'entertainment', iconName: 'film', color: '#E50914' },
-      { packageName: 'com.king.candycrushsaga', name: 'Candy Crush Saga', category: 'gaming', iconName: 'gamepad', color: '#8B5CF6' },
-      { packageName: 'com.supercell.clashroyale', name: 'Clash Royale', category: 'gaming', iconName: 'gamepad', color: '#F59E0B' },
     ];
   }
 
   /**
-   * Retrieves all protected apps and their configurations from storage.
+   * Retrieves protected apps list from native storage or web local storage.
    */
+  public async getProtectedAppsAsync(): Promise<ProtectedApp[]> {
+    if (this.isNative) {
+      try {
+        const res = await NativeLocker.getProtectedApps();
+        if (res?.apps) {
+          this.saveProtectedAppsToLocalStorage(res.apps);
+          return res.apps;
+        }
+      } catch (e) {
+        console.error('Failed to fetch native protected apps:', e);
+      }
+    }
+    return this.getProtectedApps();
+  }
+
   public getProtectedApps(): ProtectedApp[] {
     if (typeof window === 'undefined') return DEFAULT_DEMO_APPS;
     try {
@@ -201,7 +293,6 @@ export class AndroidAppLockerService {
       if (stored) {
         return JSON.parse(stored);
       }
-      // Initialize with defaults
       localStorage.setItem(STORAGE_KEYS.PROTECTED_APPS, JSON.stringify(DEFAULT_DEMO_APPS));
       return DEFAULT_DEMO_APPS;
     } catch {
@@ -209,22 +300,19 @@ export class AndroidAppLockerService {
     }
   }
 
-  /**
-   * Save protected apps list
-   */
-  public saveProtectedApps(apps: ProtectedApp[]): void {
+  private saveProtectedAppsToLocalStorage(apps: ProtectedApp[]): void {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(STORAGE_KEYS.PROTECTED_APPS, JSON.stringify(apps));
     } catch (e) {
-      console.error('Failed to save protected apps:', e);
+      console.error('Failed to save protected apps cache:', e);
     }
   }
 
   /**
-   * Adds or updates an app to the protected list
+   * Protect an app with rep target and unlock duration
    */
-  public protectApp(
+  public async protectApp(
     packageName: string,
     appName: string,
     targetReps: number,
@@ -232,15 +320,38 @@ export class AndroidAppLockerService {
     category: ProtectedApp['category'] = 'custom',
     iconName: string = 'shield',
     color: string = '#16A34A'
-  ): ProtectedApp {
+  ): Promise<ProtectedApp> {
+    if (this.isNative) {
+      try {
+        const nativeApp = await NativeLocker.protectApp({
+          packageName,
+          name: appName,
+          targetReps,
+          unlockMinutes,
+          category,
+          iconName,
+          color,
+        });
+        const current = this.getProtectedApps();
+        const filtered = current.filter((a) => a.packageName !== packageName);
+        filtered.unshift(nativeApp);
+        this.saveProtectedAppsToLocalStorage(filtered);
+        triggerHaptic('click');
+        return nativeApp;
+      } catch (e) {
+        console.error('Native protectApp failed:', e);
+      }
+    }
+
+    // Local Web simulation
     const apps = this.getProtectedApps();
     const existingIndex = apps.findIndex((a) => a.packageName === packageName);
-
     let updatedApp: ProtectedApp;
 
     if (existingIndex >= 0) {
       updatedApp = {
         ...apps[existingIndex],
+        name: appName,
         targetReps,
         unlockMinutes,
         isProtected: true,
@@ -264,70 +375,107 @@ export class AndroidAppLockerService {
       apps.unshift(updatedApp);
     }
 
-    this.saveProtectedApps(apps);
+    this.saveProtectedAppsToLocalStorage(apps);
     triggerHaptic('click');
     return updatedApp;
   }
 
   /**
-   * Removes protection from an app
+   * Unprotect an app
    */
-  public unprotectApp(packageName: string): boolean {
+  public async unprotectApp(packageName: string): Promise<boolean> {
+    if (this.isNative) {
+      try {
+        await NativeLocker.unprotectApp({ packageName });
+      } catch (e) {
+        console.error('Native unprotectApp failed:', e);
+      }
+    }
+
     const apps = this.getProtectedApps();
     const updated = apps.map((app) =>
       app.packageName === packageName ? { ...app, isProtected: false } : app
     );
-    this.saveProtectedApps(updated);
+    this.saveProtectedAppsToLocalStorage(updated);
     triggerHaptic('click');
     return true;
   }
 
   /**
-   * Toggle ON/OFF protection
+   * Toggle protection switch
    */
-  public toggleProtection(packageName: string, isProtected: boolean): boolean {
+  public async toggleProtection(packageName: string, isProtected: boolean): Promise<boolean> {
+    if (this.isNative) {
+      try {
+        await NativeLocker.toggleProtection({ packageName, isProtected });
+      } catch (e) {
+        console.error('Native toggleProtection failed:', e);
+      }
+    }
+
     const apps = this.getProtectedApps();
     const updated = apps.map((app) =>
       app.packageName === packageName ? { ...app, isProtected } : app
     );
-    this.saveProtectedApps(updated);
+    this.saveProtectedAppsToLocalStorage(updated);
     triggerHaptic('click');
     return true;
   }
 
   /**
-   * Delete an app from the list
+   * Delete an app
    */
-  public deleteApp(packageName: string): boolean {
+  public async deleteApp(packageName: string): Promise<boolean> {
+    if (this.isNative) {
+      try {
+        await NativeLocker.deleteApp({ packageName });
+      } catch (e) {
+        console.error('Native deleteApp failed:', e);
+      }
+    }
+
     const apps = this.getProtectedApps();
     const updated = apps.filter((app) => app.packageName !== packageName);
-    this.saveProtectedApps(updated);
+    this.saveProtectedAppsToLocalStorage(updated);
     return true;
   }
 
   /**
-   * Get protection status and config for a specific app package
+   * Get protection status
    */
-  public getProtectionStatus(packageName: string): { isProtected: boolean; app: ProtectedApp | null } {
+  public async getProtectionStatus(packageName: string): Promise<{ isProtected: boolean; isLocked: boolean; app: ProtectedApp | null }> {
+    if (this.isNative) {
+      try {
+        const res = await NativeLocker.getProtectionStatus({ packageName });
+        return {
+          isProtected: res.isProtected,
+          isLocked: res.isLocked,
+          app: res.app || null,
+        };
+      } catch (e) {
+        console.error('Native getProtectionStatus failed:', e);
+      }
+    }
+
     const apps = this.getProtectedApps();
     const app = apps.find((a) => a.packageName === packageName) || null;
+    const isLocked = app ? (app.isProtected && this.getRemainingUnlockTime(packageName) === 0) : false;
     return {
       isProtected: !!app?.isProtected,
+      isLocked,
       app,
     };
   }
 
   /**
-   * Simulates/reads the current foreground app
+   * Unlock app temporarily after completing verified push-ups
    */
-  public async getForegroundApp(): Promise<string | null> {
-    return null;
-  }
-
-  /**
-   * Unlocks an app temporarily after verified push-up completion
-   */
-  public unlockApp(packageName: string, durationMinutes: number, repsCompleted: number): UnlockSession {
+  public async unlockApp(
+    packageName: string,
+    durationMinutes: number,
+    repsCompleted: number,
+    autoLaunch: boolean = true
+  ): Promise<UnlockSession> {
     const now = Date.now();
     const expiresAt = now + durationMinutes * 60 * 1000;
 
@@ -335,7 +483,21 @@ export class AndroidAppLockerService {
     const targetApp = apps.find((a) => a.packageName === packageName);
     const appName = targetApp ? targetApp.name : packageName;
 
-    // Update app's unlock metrics
+    // 1. Call Native Android Plugin to write unlockUntil and launch target app
+    if (this.isNative) {
+      try {
+        await NativeLocker.unlockApp({
+          packageName,
+          durationMinutes,
+          repsCompleted,
+          autoLaunch,
+        });
+      } catch (e) {
+        console.error('Native unlockApp failed:', e);
+      }
+    }
+
+    // 2. Update local state
     const updatedApps = apps.map((a) => {
       if (a.packageName === packageName) {
         return {
@@ -347,9 +509,9 @@ export class AndroidAppLockerService {
       }
       return a;
     });
-    this.saveProtectedApps(updatedApps);
+    this.saveProtectedAppsToLocalStorage(updatedApps);
 
-    // Save active unlock session
+    // 3. Save active unlock session
     const sessions = this.getActiveUnlockSessions();
     const filteredSessions = sessions.filter((s) => s.packageName !== packageName);
 
@@ -366,13 +528,13 @@ export class AndroidAppLockerService {
     filteredSessions.push(newSession);
     this.saveUnlockSessions(filteredSessions);
 
-    // Log workout session to history
+    // 4. Log workout session to history
     this.logWorkoutSession({
       id: `workout-${Date.now()}`,
       date: new Date().toISOString().split('T')[0],
       timestamp: now,
       reps: repsCompleted,
-      durationSeconds: Math.round((repsCompleted * 2.8)),
+      durationSeconds: Math.round(repsCompleted * 2.8),
       unlockedAppName: appName,
       unlockedPackageName: packageName,
       formAccuracy: 95,
@@ -385,9 +547,32 @@ export class AndroidAppLockerService {
   }
 
   /**
-   * Re-locks an app manually or when timer expires
+   * Launch an app explicitly
    */
-  public lockApp(packageName: string): boolean {
+  public async launchApp(packageName: string): Promise<boolean> {
+    if (this.isNative) {
+      try {
+        const res = await NativeLocker.launchApp({ packageName });
+        return res.success;
+      } catch (e) {
+        console.error('Failed to launch app:', e);
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Relock an app manually
+   */
+  public async lockApp(packageName: string): Promise<boolean> {
+    if (this.isNative) {
+      try {
+        await NativeLocker.lockApp({ packageName });
+      } catch (e) {
+        console.error('Native lockApp failed:', e);
+      }
+    }
+
     const sessions = this.getActiveUnlockSessions();
     const updated = sessions.filter((s) => s.packageName !== packageName);
     this.saveUnlockSessions(updated);
@@ -396,7 +581,7 @@ export class AndroidAppLockerService {
   }
 
   /**
-   * Returns all active unlock sessions (pruning expired ones)
+   * Get active unlock sessions
    */
   public getActiveUnlockSessions(): UnlockSession[] {
     if (typeof window === 'undefined') return [];
@@ -417,9 +602,6 @@ export class AndroidAppLockerService {
     }
   }
 
-  /**
-   * Save unlock sessions
-   */
   private saveUnlockSessions(sessions: UnlockSession[]): void {
     if (typeof window === 'undefined') return;
     try {
@@ -429,9 +611,6 @@ export class AndroidAppLockerService {
     }
   }
 
-  /**
-   * Returns remaining seconds for an unlocked app (0 if locked or expired)
-   */
   public getRemainingUnlockTime(packageName: string): number {
     const sessions = this.getActiveUnlockSessions();
     const session = sessions.find((s) => s.packageName === packageName);
@@ -442,27 +621,39 @@ export class AndroidAppLockerService {
   }
 
   /**
-   * Check Usage Access permission (Android PACKAGE_USAGE_STATS)
+   * Check if Android Accessibility App Protection Service is enabled
    */
-  public async checkUsageAccessPermission(): Promise<boolean> {
-    if (this.isAndroidEnvironment) {
-      // In native Android, checks AppOpsManager.MODE_ALLOWED
-      return true;
+  public async isProtectionServiceEnabled(): Promise<boolean> {
+    if (this.isNative) {
+      try {
+        const res = await NativeLocker.isProtectionServiceEnabled();
+        return res.enabled;
+      } catch (e) {
+        console.error('Failed to check protection service status:', e);
+      }
     }
-    return false;
+    return true; // Web preview returns true to allow full testing
   }
 
   /**
-   * Open Android system settings for Usage Access
+   * Open Android System Accessibility Settings
    */
-  public openUsageAccessSettings(): void {
+  public async openProtectionSettings(): Promise<void> {
+    if (this.isNative) {
+      try {
+        await NativeLocker.openProtectionSettings();
+        return;
+      } catch (e) {
+        console.error('Failed to open native protection settings:', e);
+      }
+    }
     if (typeof window !== 'undefined') {
-      alert('On Android devices, this opens Android System Settings > Usage Access > Enable PushLock.');
+      alert('On Android devices, this directly opens Android System Settings > Accessibility > PushLock AI App Protection.');
     }
   }
 
   /**
-   * Workout History (Stores real user completed workout sessions)
+   * Workout History
    */
   public getWorkoutHistory(): WorkoutSessionLog[] {
     if (typeof window === 'undefined') return [];
@@ -472,21 +663,6 @@ export class AndroidAppLockerService {
       return [];
     } catch {
       return [];
-    }
-  }
-
-  /**
-   * Clear all workout history & reset app statistics
-   */
-  public resetAllData(): void {
-    if (typeof window === 'undefined') return;
-    try {
-      localStorage.removeItem(STORAGE_KEYS.WORKOUT_HISTORY);
-      localStorage.removeItem(STORAGE_KEYS.UNLOCK_SESSIONS);
-      localStorage.setItem(STORAGE_KEYS.PROTECTED_APPS, JSON.stringify(DEFAULT_DEMO_APPS));
-      triggerHaptic('click');
-    } catch (e) {
-      console.error('Failed to reset data:', e);
     }
   }
 
@@ -501,9 +677,18 @@ export class AndroidAppLockerService {
     }
   }
 
-  /**
-   * App Protection Global Settings
-   */
+  public resetAllData(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.removeItem(STORAGE_KEYS.WORKOUT_HISTORY);
+      localStorage.removeItem(STORAGE_KEYS.UNLOCK_SESSIONS);
+      localStorage.setItem(STORAGE_KEYS.PROTECTED_APPS, JSON.stringify(DEFAULT_DEMO_APPS));
+      triggerHaptic('click');
+    } catch (e) {
+      console.error('Failed to reset data:', e);
+    }
+  }
+
   public getProtectionSettings(): AppProtectionSettings {
     if (typeof window === 'undefined') return DEFAULT_PROTECTION_SETTINGS;
     try {
