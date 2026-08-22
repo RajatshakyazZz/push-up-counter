@@ -3,11 +3,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
-  ShieldAlert,
   Camera,
   Layers,
   Accessibility,
   Zap,
+  Bell,
+  BatteryCharging,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
@@ -28,6 +29,8 @@ export function ProtectionSetupView({ onCompleteSetup }: ProtectionSetupViewProp
     camera: false,
     overlay: false,
     accessibility: false,
+    batteryOptimization: false,
+    notification: false,
     isOemRequiringAutoStart: false,
     manufacturer: 'Android',
     allRequiredGranted: false,
@@ -78,6 +81,18 @@ export function ProtectionSetupView({ onCompleteSetup }: ProtectionSetupViewProp
     await androidAppLocker.openProtectionSettings();
   };
 
+  const handleRequestBatteryOptimization = async () => {
+    triggerHaptic('click');
+    await androidAppLocker.requestBatteryOptimization();
+    await refreshPermissions();
+  };
+
+  const handleRequestNotification = async () => {
+    triggerHaptic('click');
+    await androidAppLocker.requestNotificationPermission();
+    await refreshPermissions();
+  };
+
   const handleOpenAutoStart = async () => {
     triggerHaptic('click');
     await androidAppLocker.openAutoStartSettings();
@@ -111,7 +126,7 @@ export function ProtectionSetupView({ onCompleteSetup }: ProtectionSetupViewProp
         </div>
 
         <p className="text-xs sm:text-sm text-gray-600 leading-relaxed bg-white p-4 rounded-2xl border border-gray-200/80 shadow-xs">
-          To protect your apps and unlock them with exercise, PushLock requires standard Android device permissions. All processing is 100% on-device.
+          To protect your apps, track active screen time with push-ups, and run uninterrupted in the background, please grant the permissions below. All processing is 100% on-device.
         </p>
       </div>
 
@@ -236,26 +251,103 @@ export function ProtectionSetupView({ onCompleteSetup }: ProtectionSetupViewProp
           </div>
         </div>
 
-        {/* 4. Background / AutoStart (Manufacturer Specific) */}
-        <div className="p-4 rounded-3xl border bg-white border-gray-200 shadow-xs">
+        {/* 4. Battery Optimization / Background Exemption */}
+        <div className={`p-4 rounded-3xl border transition-all ${
+          permissions.batteryOptimization
+            ? 'bg-emerald-50/60 border-emerald-200'
+            : 'bg-white border-gray-200 shadow-xs'
+        }`}>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-2xl bg-gray-100 text-gray-700 shrink-0">
-                <Zap className="w-5 h-5" />
+              <div className={`p-2.5 rounded-2xl shrink-0 ${
+                permissions.batteryOptimization ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'
+              }`}>
+                <BatteryCharging className="w-5 h-5" />
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
-                  <h3 className="text-sm font-bold text-gray-900">4. Background & AutoStart</h3>
+                  <h3 className="text-sm font-bold text-gray-900">4. Ignore Battery Optimization</h3>
+                  {permissions.batteryOptimization && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
                 </div>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  {permissions.isOemRequiringAutoStart
-                    ? `Required on ${permissions.manufacturer} to prevent system kill`
-                    : 'Your device does not require a separate AutoStart setting'}
+                  Allows PushLock to stay active in background without being killed
                 </p>
               </div>
             </div>
 
-            {permissions.isOemRequiringAutoStart ? (
+            {permissions.batteryOptimization ? (
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-xl shrink-0">
+                Optimized ✓
+              </span>
+            ) : (
+              <button
+                onClick={handleRequestBatteryOptimization}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer shrink-0 transition-all active:scale-95 flex items-center gap-1"
+              >
+                <span>Allow</span>
+                <ExternalLink className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 5. Live Countdown Notifications */}
+        <div className={`p-4 rounded-3xl border transition-all ${
+          permissions.notification
+            ? 'bg-emerald-50/60 border-emerald-200'
+            : 'bg-white border-gray-200 shadow-xs'
+        }`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className={`p-2.5 rounded-2xl shrink-0 ${
+                permissions.notification ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'
+              }`}>
+                <Bell className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <h3 className="text-sm font-bold text-gray-900">5. Notification Bar Countdown</h3>
+                  {permissions.notification && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Shows real-time countdown timer in status bar while using unlocked apps
+                </p>
+              </div>
+            </div>
+
+            {permissions.notification ? (
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-xl shrink-0">
+                Enabled ✓
+              </span>
+            ) : (
+              <button
+                onClick={handleRequestNotification}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer shrink-0 transition-all active:scale-95"
+              >
+                Allow
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 6. AutoStart (OEM Specific) */}
+        {permissions.isOemRequiringAutoStart && (
+          <div className="p-4 rounded-3xl border bg-white border-gray-200 shadow-xs">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-2xl bg-gray-100 text-gray-700 shrink-0">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-bold text-gray-900">6. OEM AutoStart</h3>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Required on {permissions.manufacturer} to maintain background protection
+                  </p>
+                </div>
+              </div>
+
               <button
                 onClick={handleOpenAutoStart}
                 className="px-3.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold shadow-xs cursor-pointer shrink-0 transition-all flex items-center gap-1"
@@ -263,13 +355,9 @@ export function ProtectionSetupView({ onCompleteSetup }: ProtectionSetupViewProp
                 <span>Configure</span>
                 <ExternalLink className="w-3 h-3" />
               </button>
-            ) : (
-              <span className="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-1.5 rounded-xl shrink-0">
-                Ready ✓
-              </span>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Bottom Action Card */}
@@ -282,7 +370,7 @@ export function ProtectionSetupView({ onCompleteSetup }: ProtectionSetupViewProp
         ) : (
           <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>Complete permissions above to activate live app protection</span>
+            <span>Complete required permissions above to activate live app protection</span>
           </div>
         )}
 

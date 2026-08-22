@@ -63,47 +63,6 @@ export function SettingsModal({
 
         {/* Section: Controls & Audio */}
         <div className="space-y-3">
-          {/* Countdown Buffer Timer */}
-          <div className="p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <Timer className="h-4 w-4 text-emerald-600" />
-                <div>
-                  <div className="text-xs font-bold text-gray-900">Pre-Workout Buffer</div>
-                  <div className="text-[11px] text-gray-500">Delay to place phone on floor</div>
-                </div>
-              </div>
-              <span className="text-xs font-mono font-bold text-emerald-700">
-                {settings.countdownSeconds === 0 ? 'Instant' : `${settings.countdownSeconds}s`}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-4 gap-1.5 pt-1">
-              {[
-                { value: 0, label: 'Off' },
-                { value: 3, label: '3 sec' },
-                { value: 5, label: '5 sec' },
-                { value: 10, label: '10 sec' },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  id={`settings-countdown-${opt.value}`}
-                  onClick={() => {
-                    triggerHaptic('click');
-                    onUpdateSettings({ countdownSeconds: opt.value });
-                  }}
-                  className={`py-1.5 px-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer border ${
-                    (settings.countdownSeconds ?? 5) === opt.value
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* Voice Coach */}
           <label className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 cursor-pointer">

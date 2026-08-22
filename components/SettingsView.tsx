@@ -25,6 +25,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { PushUpSettings, AppProtectionSettings } from '@/types/fitness';
+import { androidAppLocker } from '@/lib/native-bridge/androidAppLocker';
 import { triggerHaptic } from '@/lib/haptics';
 
 interface SettingsViewProps {
@@ -245,7 +246,57 @@ export function SettingsView({
             </span>
           </div>
 
-          {/* 3. Camera Permission */}
+          {/* 3. Battery Optimization */}
+          <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <div>
+                <div className="text-xs font-bold text-gray-900">
+                  Background Battery Optimization Exemption
+                </div>
+                <div className="text-[11px] text-gray-500">
+                  Keeps accessibility monitoring alive without system kill
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('click');
+                androidAppLocker.requestBatteryOptimization();
+              }}
+              className="text-[11px] font-bold text-gray-700 bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-xl transition-all cursor-pointer shrink-0"
+            >
+              Configure
+            </button>
+          </div>
+
+          {/* 4. Notification Countdown */}
+          <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <div>
+                <div className="text-xs font-bold text-gray-900">
+                  Live Status Bar Countdown Notifications
+                </div>
+                <div className="text-[11px] text-gray-500">
+                  Shows remaining screen time in notification shade
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('click');
+                androidAppLocker.requestNotificationPermission();
+              }}
+              className="text-[11px] font-bold text-gray-700 bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-xl transition-all cursor-pointer shrink-0"
+            >
+              Allow
+            </button>
+          </div>
+
+          {/* 5. Camera Permission */}
           <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80">
             <div className="flex items-center gap-3">
               <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />

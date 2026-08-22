@@ -91,6 +91,9 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
 - **Permissions**:
   - `android.permission.CAMERA` (For MediaPipe local on-device pose estimation)
   - `android.permission.BIND_ACCESSIBILITY_SERVICE` (For PushLock AI foreground app protection)
+  - `android.permission.SYSTEM_ALERT_WINDOW` (For displaying lock screen over protected apps)
+  - `android.permission.POST_NOTIFICATIONS` (For live status bar countdown updates)
+  - `android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (To prevent background kill by OEM battery managers)
   - `android.permission.REORDER_TASKS` (For smooth task switching)
 - **Privacy Guarantees**:
   - `canRetrieveWindowContent="false"`: PushLock AI cannot read text, passwords, messages, or screen contents.
@@ -112,7 +115,7 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
 ### Navigation Tabs (`app/page.tsx`, `components/AndroidBottomNav.tsx`):
 1. **Home (`components/HomeDashboard.tsx`)**: Real daily rep count, active session countdowns, and real recent workout logs.
 2. **Apps (`components/AppLockerView.tsx`)**: Real installed launcher apps from `PackageManager`, protect/unprotect buttons, and configuration sheets.
-3. **Workout (`app/page.tsx:workout`, `components/CameraFeed.tsx`)**: Ultra-clean portrait-optimized camera feed, bold HUD counter (`12 / 20`), subtle skeleton, concise live coach feedback pill, pause/resume, and finish buttons.
+3. **Workout (`app/page.tsx:workout`, `components/CameraFeed.tsx`)**: Ultra-clean portrait-optimized camera feed, bold HUD counter (`12 / 20`), subtle skeleton, instant camera start without pre-workout delay, concise live coach feedback pill, pause/resume, and finish buttons.
 4. **Time Management (`components/TimeManagementView.tsx`)**: Push-up reward engine configuring screen time earned per rep (`15s`, `30s`, `1m`, `2m`, `3m`, `5m`) with live mathematical preview.
 5. **History (`components/HistoryView.tsx`)**: Real historical logs of verified workouts, accuracy scores, and unlocked apps.
 6. **Settings (`components/SettingsView.tsx`)**: Voice coach toggles, sound effects, strict form mode, screen-off relock, and live Android native permissions diagnostics.
@@ -126,12 +129,13 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
 │   │   ├── build.gradle         # Application gradle build file (appId: com.pushlock.ai)
 │   │   ├── build/outputs/apk/debug/app-debug.apk # Generated Debug APK (4.4 MB)
 │   │   └── src/main/
-│   │       ├── AndroidManifest.xml # Permissions (CAMERA, SYSTEM_ALERT_WINDOW, BIND_ACCESSIBILITY_SERVICE)
+│   │       ├── AndroidManifest.xml # Permissions (CAMERA, SYSTEM_ALERT_WINDOW, BIND_ACCESSIBILITY_SERVICE, POST_NOTIFICATIONS, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
 │   │       ├── java/com/pushlock/ai/
 │   │       │   ├── MainActivity.java # Main Activity & lock intent dispatcher
 │   │       │   ├── inventory/AppInventoryManager.kt # Real launcher app query & Base64 LRU cache
+│   │       │   ├── notification/PushLockNotificationManager.kt # Status bar live countdown & expiry alerts
 │   │       │   ├── plugin/PushLockAppLockerPlugin.kt # Capacitor plugin bridge & permission checks
-│   │       │   ├── service/PushLockAccessibilityService.kt # Foreground app interception & continuous expiry timer
+│   │       │   ├── service/PushLockAccessibilityService.kt # Foreground app interception & active screen-time deduction ticker
 │   │       │   └── storage/NativeAppProtectionStore.kt # Persistent SharedPreferences single source of truth
 │   │       └── assets/public/   # Synced Next.js production build assets
 │   ├── build.gradle             # Root gradle build configuration
@@ -154,7 +158,6 @@ Guarantees the skeleton turns GREEN only in genuine push-up positions and remain
 │   ├── HistoryView.tsx          # Workout history & unlock records
 │   ├── HomeDashboard.tsx        # Primary overview dashboard with real metrics
 │   ├── LockScreenModal.tsx      # Android overlay lock screen experience
-│   ├── PreWorkoutCountdown.tsx  # Pre-workout ready timer buffer
 │   ├── ProtectionSetupView.tsx  # First-launch Android permission onboarding & live diagnostic
 │   ├── SettingsModal.tsx        # Quick preferences modal
 │   ├── SettingsView.tsx         # Preferences & live Android permissions diagnostic

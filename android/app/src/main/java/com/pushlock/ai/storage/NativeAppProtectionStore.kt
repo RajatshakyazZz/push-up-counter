@@ -8,7 +8,7 @@ import org.json.JSONObject
 /**
  * NativeAppProtectionStore
  * Persistent SharedPreferences-backed single source of truth for PushLock AI.
- * Stores protected app configurations, rep requirements, and absolute unlockUntil timestamps.
+ * Stores protected app configurations, rep requirements, and active screen-time balances.
  */
 class NativeAppProtectionStore private constructor(context: Context) {
 
@@ -113,6 +113,7 @@ class NativeAppProtectionStore private constructor(context: Context) {
             put("timesUnlockedToday", 0)
             put("totalUnlocks", 0)
             put("lastUnlockedAt", JSONObject.NULL)
+            put("remainingScreenTimeSeconds", 0L)
             put("unlockUntil", 0L)
         }
 
@@ -167,13 +168,13 @@ class NativeAppProtectionStore private constructor(context: Context) {
     }
 
     /**
-     * Unlocks an app temporarily with an absolute unlockUntil timestamp.
-     * Returns the unlockUntil timestamp in milliseconds.
+     * Unlocks an app with active screen time (durationMinutes).
+     * Returns remaining screen time in seconds.
      */
     @Synchronized
     fun unlockApp(packageName: String, durationMinutes: Int, repsCompleted: Int): Long {
         val now = System.currentTimeMillis()
-        val unlockUntil = now + (durationMinutes * 60 * 1000L)
+        val totalSeconds = durationMinutes * 60L
         val map = getAllAppsMap()
         val app = map[packageName] ?: JSONObject().apply {
             put("id", "app-$now")
@@ -189,20 +190,48 @@ class NativeAppProtectionStore private constructor(context: Context) {
             put("totalUnlocks", 0)
         }
 
-        app.put("unlockUntil", unlockUntil)
+        app.put("remainingScreenTimeSeconds", totalSeconds)
+        app.put("unlockUntil", now + (totalSeconds * 1000L))
         app.put("lastUnlockedAt", now)
         app.put("timesUnlockedToday", app.optInt("timesUnlockedToday", 0) + 1)
         app.put("totalUnlocks", app.optInt("totalUnlocks", 0) + 1)
 
         map[packageName] = app
         saveAllAppsMap(map)
-        return unlockUntil
+        return totalSeconds
+    }
+
+    /**
+     * Deducts active foreground seconds from the app's screen-time balance.
+     * Returns the updated remaining screen time in seconds.
+     */
+    @Synchronized
+    fun deductScreenTime(packageName: String, seconds: Long = 1L): Long {
+        val map = getAllAppsMap()
+        val app = map[packageName] ?: return 0L
+        val current = app.optLong("remainingScreenTimeSeconds", 0L)
+        val updated = Math.max(0L, current - seconds)
+        app.put("remainingScreenTimeSeconds", updated)
+        if (updated <= 0L) {
+            app.put("unlockUntil", 0L)
+        }
+        map[packageName] = app
+        saveAllAppsMap(map)
+        return updated
+    }
+
+    @Synchronized
+    fun getRemainingScreenTimeSeconds(packageName: String): Long {
+        val map = getAllAppsMap()
+        val app = map[packageName] ?: return 0L
+        return app.optLong("remainingScreenTimeSeconds", 0L)
     }
 
     @Synchronized
     fun lockApp(packageName: String): Boolean {
         val map = getAllAppsMap()
         val app = map[packageName] ?: return false
+        app.put("remainingScreenTimeSeconds", 0L)
         app.put("unlockUntil", 0L)
         map[packageName] = app
         saveAllAppsMap(map)
@@ -211,7 +240,7 @@ class NativeAppProtectionStore private constructor(context: Context) {
 
     /**
      * Determines whether the app is currently locked.
-     * An app is locked if isProtected == true AND currentTime >= unlockUntil.
+     * An app is locked if isProtected == true AND remainingScreenTimeSeconds <= 0.
      */
     @Synchronized
     fun isAppLocked(packageName: String): Boolean {
@@ -220,18 +249,13 @@ class NativeAppProtectionStore private constructor(context: Context) {
         val isProtected = app.optBoolean("isProtected", false)
         if (!isProtected) return false
 
-        val unlockUntil = app.optLong("unlockUntil", 0L)
-        val now = System.currentTimeMillis()
-        return now >= unlockUntil
+        val remaining = app.optLong("remainingScreenTimeSeconds", 0L)
+        return remaining <= 0L
     }
 
     @Synchronized
     fun getRemainingUnlockSeconds(packageName: String): Long {
-        val map = getAllAppsMap()
-        val app = map[packageName] ?: return 0L
-        val unlockUntil = app.optLong("unlockUntil", 0L)
-        val now = System.currentTimeMillis()
-        return if (unlockUntil > now) (unlockUntil - now) / 1000L else 0L
+        return getRemainingScreenTimeSeconds(packageName)
     }
 
     @Synchronized
@@ -240,13 +264,14 @@ class NativeAppProtectionStore private constructor(context: Context) {
         val map = getAllAppsMap()
         val sessions = mutableListOf<JSONObject>()
         for ((_, app) in map) {
-            val unlockUntil = app.optLong("unlockUntil", 0L)
-            if (app.optBoolean("isProtected", false) && unlockUntil > now) {
+            val remainingSec = app.optLong("remainingScreenTimeSeconds", 0L)
+            if (app.optBoolean("isProtected", false) && remainingSec > 0L) {
                 val session = JSONObject().apply {
                     put("packageName", app.optString("packageName"))
                     put("appName", app.optString("name"))
                     put("unlockedAt", app.optLong("lastUnlockedAt", now))
-                    put("expiresAt", unlockUntil)
+                    put("expiresAt", now + (remainingSec * 1000L))
+                    put("remainingSeconds", remainingSec)
                     put("durationMinutes", app.optInt("unlockMinutes", 15))
                     put("repsCompleted", app.optInt("targetReps", 20))
                     put("isActive", true)

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import com.getcapacitor.JSArray
@@ -16,6 +17,7 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
+import com.getcapacitor.annotation.PermissionCallback
 import com.pushlock.ai.inventory.AppInventoryManager
 import com.pushlock.ai.service.PushLockAccessibilityService
 import com.pushlock.ai.storage.NativeAppProtectionStore
@@ -25,7 +27,7 @@ import org.json.JSONObject
  * PushLockAppLockerPlugin
  * Native Capacitor Plugin for PushLock AI.
  * Bridges React UI to native Android app inventory, protection storage,
- * real permission checking, and accessibility service app interception.
+ * real permission checking, notifications, battery optimization, and accessibility service app interception.
  */
 @CapacitorPlugin(
     name = "PushLockAppLocker",
@@ -33,6 +35,10 @@ import org.json.JSONObject
         Permission(
             alias = "camera",
             strings = [Manifest.permission.CAMERA]
+        ),
+        Permission(
+            alias = "notifications",
+            strings = ["android.permission.POST_NOTIFICATIONS"]
         )
     ]
 )
@@ -245,21 +251,21 @@ class PushLockAppLockerPlugin : Plugin() {
         val autoLaunch = call.getBoolean("autoLaunch", true) ?: true
 
         try {
-            val unlockUntil = protectionStore.unlockApp(packageName, durationMinutes, repsCompleted)
+            val remainingSeconds = protectionStore.unlockApp(packageName, durationMinutes, repsCompleted)
 
-            // Schedule continuous foreground expiry check with Accessibility Service
-            PushLockAccessibilityService.scheduleExpiryCheck(packageName, unlockUntil)
+            // Notify Accessibility Service
+            PushLockAccessibilityService.onAppUnlocked(packageName)
 
             val session = JSObject().apply {
                 put("packageName", packageName)
                 put("unlockedAt", System.currentTimeMillis())
-                put("expiresAt", unlockUntil)
+                put("expiresAt", System.currentTimeMillis() + (remainingSeconds * 1000L))
+                put("remainingSeconds", remainingSeconds)
                 put("durationMinutes", durationMinutes)
                 put("repsCompleted", repsCompleted)
                 put("isActive", true)
             }
 
-            // Launch the unlocked app if requested
             if (autoLaunch) {
                 launchTargetApp(packageName)
             }
@@ -279,7 +285,7 @@ class PushLockAppLockerPlugin : Plugin() {
         }
 
         try {
-            PushLockAccessibilityService.cancelExpiryCheck(packageName)
+            PushLockAccessibilityService.onAppManuallyLocked(packageName)
             val success = protectionStore.lockApp(packageName)
             val ret = JSObject().apply { put("success", success) }
             call.resolve(ret)
@@ -331,6 +337,22 @@ class PushLockAppLockerPlugin : Plugin() {
             val overlayGranted = Settings.canDrawOverlays(context)
             val accessibilityEnabled = isAccessibilitySettingsEnabled(context)
 
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val batteryOptimizationIgnored = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: false
+            } else {
+                true
+            }
+
+            val notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            }
+
             val manufacturer = Build.MANUFACTURER?.lowercase() ?: ""
             val isOemRequiringAutoStart = manufacturer.contains("xiaomi") ||
                     manufacturer.contains("redmi") ||
@@ -348,6 +370,8 @@ class PushLockAppLockerPlugin : Plugin() {
                 put("camera", cameraGranted)
                 put("overlay", overlayGranted)
                 put("accessibility", accessibilityEnabled)
+                put("batteryOptimization", batteryOptimizationIgnored)
+                put("notification", notificationGranted)
                 put("isOemRequiringAutoStart", isOemRequiringAutoStart)
                 put("manufacturer", Build.MANUFACTURER ?: "Unknown")
                 put("allRequiredGranted", allRequiredGranted)
@@ -370,6 +394,76 @@ class PushLockAppLockerPlugin : Plugin() {
             requestPermissionForAlias("camera", call, "cameraPermissionCallback")
         } catch (e: Exception) {
             call.reject("Failed to request camera permission: ${e.message}", e)
+        }
+    }
+
+    @PermissionCallback
+    fun cameraPermissionCallback(call: PluginCall) {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        val ret = JSObject().apply { put("granted", granted) }
+        call.resolve(ret)
+    }
+
+    @PluginMethod
+    fun requestNotificationPermission(call: PluginCall) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                    val ret = JSObject().apply { put("granted", true) }
+                    call.resolve(ret)
+                    return
+                }
+                requestPermissionForAlias("notifications", call, "notificationPermissionCallback")
+            } else {
+                val ret = JSObject().apply { put("granted", true) }
+                call.resolve(ret)
+            }
+        } catch (e: Exception) {
+            call.reject("Failed to request notification permission: ${e.message}", e)
+        }
+    }
+
+    @PermissionCallback
+    fun notificationPermissionCallback(call: PluginCall) {
+        val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        val ret = JSObject().apply { put("granted", granted) }
+        call.resolve(ret)
+    }
+
+    @PluginMethod
+    fun requestBatteryOptimization(call: PluginCall) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                if (powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true) {
+                    val ret = JSObject().apply { put("granted", true) }
+                    call.resolve(ret)
+                    return
+                }
+
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+                val ret = JSObject().apply { put("success", true) }
+                call.resolve(ret)
+            } else {
+                val ret = JSObject().apply { put("granted", true) }
+                call.resolve(ret)
+            }
+        } catch (e: Exception) {
+            call.reject("Failed to request battery optimization: ${e.message}", e)
         }
     }
 

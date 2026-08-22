@@ -282,12 +282,7 @@ export function AppLockerView({
                         <>
                           <span className="flex items-center gap-1 text-emerald-700 font-semibold">
                             <Dumbbell className="w-3.5 h-3.5" />
-                            {app.targetReps} reps
-                          </span>
-                          <span className="text-gray-300">•</span>
-                          <span className="flex items-center gap-1 text-blue-700 font-semibold">
-                            <Timer className="w-3.5 h-3.5" />
-                            {app.unlockMinutes}m access
+                            1 Push-up = 1 Min Access
                           </span>
                         </>
                       ) : (

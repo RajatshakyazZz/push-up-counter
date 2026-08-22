@@ -47,12 +47,7 @@ function AppConfigForm({
   onSave: (app: ProtectedApp) => void;
   onDelete?: (packageName: string) => void;
 }) {
-  const [targetReps, setTargetReps] = useState(app?.targetReps || 20);
-  const [rewardSeconds, setRewardSeconds] = useState(app?.rewardSecondsPerRep || 60);
-
-  // Calculate total earned minutes
-  const totalSeconds = targetReps * rewardSeconds;
-  const calculatedMinutes = Math.max(1, Math.round(totalSeconds / 60));
+  const [isProtected, setIsProtected] = useState(app?.isProtected ?? true);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,10 +56,10 @@ function AppConfigForm({
     triggerHaptic('click');
     const updated: ProtectedApp = {
       ...app,
-      targetReps,
-      rewardSecondsPerRep: rewardSeconds,
-      unlockMinutes: calculatedMinutes,
-      isProtected: true,
+      targetReps: 0,
+      rewardSecondsPerRep: 60,
+      unlockMinutes: 1,
+      isProtected,
     };
     onSave(updated);
     onClose();
@@ -99,7 +94,7 @@ function AppConfigForm({
               {app.name}
             </h2>
             <p className="text-xs text-gray-500">
-              {app.isProtected ? 'Edit Push-Up Requirements' : 'Protect with Push-Ups'}
+              {app.isProtected ? 'Push-Up Lock Active' : 'Protect with Push-Ups'}
             </p>
           </div>
         </div>
@@ -114,90 +109,43 @@ function AppConfigForm({
         </button>
       </div>
 
-      <form onSubmit={handleSave} className="flex flex-col gap-4 overflow-y-auto max-h-[70vh] pr-1">
-        {/* 1. Required Push-ups */}
-        <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80">
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-2">
-              <Dumbbell className="w-4 h-4 text-emerald-600" />
-              <span className="text-xs font-bold text-gray-700 uppercase">
-                Required Push-ups
-              </span>
-            </div>
-            <span className="text-base font-black text-emerald-600">
-              {targetReps} reps
+      <form onSubmit={handleSave} className="flex flex-col gap-4">
+        {/* Core Unlock Rule Bento Box */}
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Sparkles className="w-4 h-4 text-emerald-600" />
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+              PushLock Unlock Rule
             </span>
           </div>
-
-          <div className="grid grid-cols-4 gap-1.5">
-            {REPS_OPTIONS.map((reps) => (
-              <button
-                type="button"
-                key={reps}
-                onClick={() => {
-                  triggerHaptic('click');
-                  setTargetReps(reps);
-                }}
-                className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  targetReps === reps
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                {reps}
-              </button>
-            ))}
+          <div className="text-base font-black text-emerald-800">
+            1 Push-up = 1 Minute Screen Time
           </div>
+          <p className="text-xs text-emerald-700 mt-1 leading-relaxed">
+            When this app is locked, opening it prompts you for push-ups. However many verified push-ups you do, that is exactly how many minutes the app stays unlocked!
+          </p>
         </div>
 
-        {/* 2. Reward Rate per Push-up */}
-        <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80">
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-2">
-              <Timer className="w-4 h-4 text-blue-600" />
-              <span className="text-xs font-bold text-gray-700 uppercase">
-                Reward per Push-up
-              </span>
-            </div>
-            <span className="text-sm font-bold text-blue-600">
-              {REWARD_OPTIONS.find((r) => r.seconds === rewardSeconds)?.label} / rep
-            </span>
-          </div>
-
-          <div className="grid grid-cols-3 gap-1.5">
-            {REWARD_OPTIONS.map((opt) => (
-              <button
-                type="button"
-                key={opt.seconds}
-                onClick={() => {
-                  triggerHaptic('click');
-                  setRewardSeconds(opt.seconds);
-                }}
-                className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  rewardSeconds === opt.seconds
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 3. Mathematical Access Preview Box */}
-        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center justify-between">
-          <div>
-            <div className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">
-              Total Screen Time Earned
-            </div>
-            <div className="text-sm text-emerald-800 mt-0.5">
-              {targetReps} reps × {REWARD_OPTIONS.find((r) => r.seconds === rewardSeconds)?.label}
+        {/* Protection Switch */}
+        <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Lock className={`w-5 h-5 ${isProtected ? 'text-emerald-600' : 'text-gray-400'}`} />
+            <div>
+              <div className="text-xs font-bold text-gray-800">App Lock Protection</div>
+              <div className="text-[11px] text-gray-500">
+                {isProtected ? 'Active — app requires push-ups to open' : 'Disabled — app opens normally'}
+              </div>
             </div>
           </div>
-          <div className="text-xl font-black text-emerald-700">
-            = {calculatedMinutes} mins
-          </div>
+          <input
+            type="checkbox"
+            checked={isProtected}
+            onChange={(e) => {
+              triggerHaptic('click');
+              setIsProtected(e.target.checked);
+            }}
+            className="w-5 h-5 accent-emerald-600 rounded cursor-pointer"
+          />
         </div>
 
         {/* Action Buttons */}
@@ -217,7 +165,7 @@ function AppConfigForm({
             className="flex-1 py-3.5 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md shadow-emerald-600/25 transition-all cursor-pointer"
           >
             <Lock className="w-4 h-4" />
-            <span>{app.isProtected ? 'Save Configuration' : 'Protect App'}</span>
+            <span>Save Protection Settings</span>
           </button>
         </div>
       </form>

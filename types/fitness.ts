@@ -163,6 +163,8 @@ export interface PermissionCheckResult {
   camera: boolean;
   overlay: boolean;
   accessibility: boolean;
+  batteryOptimization: boolean;
+  notification: boolean;
   isOemRequiringAutoStart: boolean;
   manufacturer: string;
   allRequiredGranted: boolean;

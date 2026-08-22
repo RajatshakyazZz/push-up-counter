@@ -78,19 +78,19 @@ export function LockScreenModal({
           {app.name} is Locked
         </h2>
         <p className="text-xs sm:text-sm text-gray-500 max-w-xs mx-auto mb-6 leading-relaxed">
-          Complete your verified push-up workout to earn screen time and unlock this app.
+          Do push-ups to earn screen time. Each push-up you do gives you <span className="font-bold text-emerald-600">1 minute</span> of unlocked app access.
         </p>
 
         {/* Push-up Goal & Time Bento Card */}
-        <div className="grid grid-cols-2 gap-3 p-4 rounded-2xl bg-gray-50 border border-gray-200/80 mb-6 text-left">
+        <div className="grid grid-cols-2 gap-3 p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 mb-6 text-left">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-emerald-100 text-emerald-700">
               <Dumbbell className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Required</div>
-              <div className="text-lg font-black text-gray-900">
-                {app.targetReps} <span className="text-xs font-normal text-gray-500">Push-ups</span>
+              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Rate</div>
+              <div className="text-base font-black text-emerald-700">
+                1 Push-up
               </div>
             </div>
           </div>
@@ -101,8 +101,8 @@ export function LockScreenModal({
             </div>
             <div>
               <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Reward</div>
-              <div className="text-lg font-black text-gray-900">
-                {app.unlockMinutes} <span className="text-xs font-normal text-gray-500">Mins</span>
+              <div className="text-base font-black text-blue-700">
+                = 1 Min Access
               </div>
             </div>
           </div>
@@ -111,7 +111,7 @@ export function LockScreenModal({
         {/* AI Guarantee */}
         <div className="flex items-center justify-center gap-2 text-xs font-medium text-gray-500 mb-6">
           <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Real-time MediaPipe AI verifies chest depth & form</span>
+          <span>Real-time MediaPipe AI verifies form • Do as many reps as you want</span>
         </div>
 
         {/* Action Buttons */}
@@ -122,7 +122,7 @@ export function LockScreenModal({
             className="w-full py-4 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 transition-all cursor-pointer"
           >
             <Play className="w-5 h-5 fill-white" />
-            <span>Start {app.targetReps} Push-ups to Unlock</span>
+            <span>Start Push-ups to Unlock</span>
           </button>
 
           <button

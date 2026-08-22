@@ -25,6 +25,15 @@ public class MainActivity extends BridgeActivity {
     private void handleIncomingLockIntent(Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
+        if (com.pushlock.ai.notification.PushLockNotificationManager.ACTION_LOCK_NOW.equals(action)) {
+            String pkgToLock = intent.getStringExtra(com.pushlock.ai.notification.PushLockNotificationManager.EXTRA_PACKAGE_TO_LOCK);
+            if (pkgToLock != null && !pkgToLock.isEmpty()) {
+                com.pushlock.ai.storage.NativeAppProtectionStore.Companion.getInstance(this).lockApp(pkgToLock);
+                com.pushlock.ai.service.PushLockAccessibilityService.Companion.onAppManuallyLocked(pkgToLock);
+            }
+            return;
+        }
+
         if (PushLockAccessibilityService.ACTION_LOCK_APP.equals(action)) {
             String packageName = intent.getStringExtra(PushLockAccessibilityService.EXTRA_LOCKED_PACKAGE);
             if (packageName != null && !packageName.isEmpty()) {

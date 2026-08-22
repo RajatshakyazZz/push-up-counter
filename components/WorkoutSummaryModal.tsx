@@ -75,18 +75,24 @@ export function WorkoutSummaryModal({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-black text-gray-900 tracking-tight">
-                  {unlockedApp ? `${unlockedApp.name} Unlocked!` : 'Workout Complete!'}
+                  {unlockedApp
+                    ? stats.totalReps > 0
+                      ? `${unlockedApp.name} Unlocked!`
+                      : 'Session Finished'
+                    : 'Workout Complete!'}
                 </h3>
-                {isGoalAchieved && (
+                {stats.totalReps > 0 && (
                   <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
                     <Sparkles className="h-3 w-3 text-emerald-600" />
-                    <span>Goal Hit</span>
+                    <span>{stats.totalReps}m Earned</span>
                   </span>
                 )}
               </div>
               <p className="text-xs text-gray-500">
                 {unlockedApp
-                  ? `Access granted for ${unlockedApp.unlockMinutes} minutes`
+                  ? stats.totalReps > 0
+                    ? `Access granted for ${stats.totalReps} minute${stats.totalReps === 1 ? '' : 's'}`
+                    : 'Complete push-ups to earn screen time'
                   : 'AI biomechanical movement analysis'}
               </p>
             </div>
@@ -103,7 +109,11 @@ export function WorkoutSummaryModal({
 
         {/* Unlocked App Announcement Banner (if unlock workout) */}
         {unlockedApp && (
-          <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900">
+          <div className={`flex items-center gap-3 p-4 rounded-2xl border ${
+            stats.totalReps > 0
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : 'bg-amber-50 border-amber-200 text-amber-900'
+          }`}>
             <AppIcon
               iconName={unlockedApp.iconName}
               name={unlockedApp.name}
@@ -111,12 +121,16 @@ export function WorkoutSummaryModal({
               size="md"
             />
             <div className="flex-1">
-              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-700">
+              <div className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider ${
+                stats.totalReps > 0 ? 'text-emerald-700' : 'text-amber-700'
+              }`}>
                 <Unlock className="w-3.5 h-3.5" />
-                <span>Screen Time Unlocked</span>
+                <span>{stats.totalReps > 0 ? 'Screen Time Unlocked' : 'App Remains Locked'}</span>
               </div>
               <p className="text-sm font-bold text-gray-900">
-                {unlockedApp.name} is now accessible for {unlockedApp.unlockMinutes} minutes
+                {stats.totalReps > 0
+                  ? `${unlockedApp.name} is now accessible for ${stats.totalReps} minute${stats.totalReps === 1 ? '' : 's'} (1 min per push-up)`
+                  : `0 push-ups completed. Do push-ups to earn unlocked time.`}
               </p>
             </div>
           </div>
@@ -191,7 +205,7 @@ export function WorkoutSummaryModal({
 
         {/* Action Buttons */}
         <div className="flex flex-col gap-2.5 pt-2">
-          {unlockedApp && onOpenApp && (
+          {unlockedApp && onOpenApp && stats.totalReps > 0 && (
             <button
               onClick={() => {
                 triggerHaptic('success');
@@ -200,7 +214,7 @@ export function WorkoutSummaryModal({
               className="w-full min-h-[50px] inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-sm font-black uppercase text-white hover:bg-emerald-700 active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-emerald-600/25"
             >
               <Unlock className="h-4 w-4" />
-              <span>Open {unlockedApp.name} Now</span>
+              <span>Open {unlockedApp.name} Now ({stats.totalReps}m)</span>
             </button>
           )}
 

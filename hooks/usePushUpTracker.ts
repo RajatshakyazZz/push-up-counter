@@ -20,13 +20,13 @@ import {
 } from '@/lib/audio';
 
 export const DEFAULT_SETTINGS: PushUpSettings = {
-  upAngleThreshold: 152,
-  downAngleThreshold: 92,
-  backAlignmentThreshold: 140,
+  upAngleThreshold: 150,
+  downAngleThreshold: 102,
+  backAlignmentThreshold: 135,
   voiceAnnounce: true,
   soundEffects: true,
   hapticsEnabled: true,
-  targetReps: 15,
+  targetReps: 0,
   pushUpVariant: 'standard',
   strictMode: false,
   mirrorVideo: true,
@@ -34,9 +34,9 @@ export const DEFAULT_SETTINGS: PushUpSettings = {
   showAngles: true,
   countdownSeconds: 5,
   debugMode: false,
-  minRepDurationMs: 280,
-  minAngleDelta: 26,
-  requiredConfidence: 0.25,
+  minRepDurationMs: 240,
+  minAngleDelta: 22,
+  requiredConfidence: 0.20,
 };
 
 // High-speed responsive debounce frame requirements (zero missed reps)
@@ -295,39 +295,35 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
         return;
       }
 
-      // 3. STRICT PUSH-UP POSITION GATE ENFORCEMENT
-      // If position is invalid (standing, sitting, waving hands),
-      // FREEZE the state machine without instantly killing in-flight reps on 1 noisy frame.
-      // Only reset to idle if posture remains invalid for > 25 consecutive frames (~1 second).
+      // 3. PUSH-UP POSITION GATE ENFORCEMENT
+      // If position is temporarily noisy during rapid descent/ascent, allow the in-flight rep to complete
       if (!isPositionValid) {
         consecutivePositionFramesRef.current = 0;
-        consecutiveDownFramesRef.current = 0;
-        consecutiveUpFramesRef.current = 0;
 
+        // If in the middle of a rep, continue evaluating elbow angles rather than abruptly aborting
         if (
-          currentPhase === 'going_down' ||
-          currentPhase === 'down' ||
-          currentPhase === 'going_up' ||
-          currentPhase === 'ready' ||
-          currentPhase === 'up'
+          currentPhase !== 'going_down' &&
+          currentPhase !== 'down' &&
+          currentPhase !== 'going_up'
         ) {
-          // Freeze state during momentary posture noise, do not clear reachedBottomRef immediately
-        }
+          consecutiveDownFramesRef.current = 0;
+          consecutiveUpFramesRef.current = 0;
 
-        if (orientation === 'vertical' || !isPlankOrientation) {
-          setFormStatus('stand_down');
-          provideFeedback('Get down into push-up position on the floor', false);
-        } else if (!analysis.areHandsSupporting) {
-          setFormStatus('hands_misaligned');
-          provideFeedback('Place your hands firmly on the ground under shoulders', false);
-        } else if (!isBodyStraight) {
-          setFormStatus('straighten_back');
-          provideFeedback(positionInvalidReason || 'Align hips with back', false);
-        } else {
-          setFormStatus('invalid_position');
-          provideFeedback(positionInvalidReason || 'Get into push-up position', false);
+          if (orientation === 'vertical' || !isPlankOrientation) {
+            setFormStatus('stand_down');
+            provideFeedback('Get down into push-up position on the floor', false);
+          } else if (!analysis.areHandsSupporting) {
+            setFormStatus('hands_misaligned');
+            provideFeedback('Place hands on the floor under shoulders', false);
+          } else if (!isBodyStraight) {
+            setFormStatus('straighten_back');
+            provideFeedback(positionInvalidReason || 'Align hips with back', false);
+          } else {
+            setFormStatus('invalid_position');
+            provideFeedback(positionInvalidReason || 'Get into push-up position', false);
+          }
+          return;
         }
-        return;
       }
 
       // 4. FORM SCORING
@@ -473,7 +469,7 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
 
         case 'going_up': {
           // Check if arms reached top lockout threshold (responsive 1-frame confirmation)
-          if (elbowAngle >= upAngleThreshold - 12) {
+          if (elbowAngle >= upAngleThreshold - 14) {
             consecutiveUpFramesRef.current++;
 
             if (consecutiveUpFramesRef.current >= UP_CONFIRM_FRAMES) {

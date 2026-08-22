@@ -243,8 +243,8 @@ export function HomeDashboard({
                     <h3 className="text-sm font-bold text-gray-900 leading-tight truncate">
                       {app.name}
                     </h3>
-                    <p className="text-[11px] text-gray-500 mt-0.5">
-                      {app.targetReps} reps • {app.unlockMinutes}m
+                    <p className="text-[11px] text-emerald-700 font-semibold mt-0.5">
+                      1 Push-up = 1 Min
                     </p>
                   </div>
 

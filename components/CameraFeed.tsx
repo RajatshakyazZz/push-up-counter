@@ -1,12 +1,10 @@
 'use client';
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef } from 'react';
 import {
   Camera,
   CameraOff,
   Loader2,
-  CheckCircle2,
-  AlertTriangle,
   ShieldCheck,
   ShieldAlert,
   Volume2,
@@ -15,12 +13,9 @@ import {
   Pause,
   Play,
   Check,
-  RotateCcw,
-  Sparkles,
 } from 'lucide-react';
 import { PushUpPhase, FormStatus, PushUpSettings, WorkoutStats } from '@/types/fitness';
 import { PoseAnalysis } from '@/lib/pose-math';
-import { PreWorkoutCountdown } from '@/components/PreWorkoutCountdown';
 import { triggerHaptic } from '@/lib/haptics';
 
 interface CameraFeedProps {
@@ -37,7 +32,6 @@ interface CameraFeedProps {
   analysis: PoseAnalysis | null;
   settings: PushUpSettings;
   stats?: WorkoutStats;
-  isCountdownActive?: boolean;
   unlockedAppName?: string;
   onStartCamera: () => void;
   onStopCamera: () => void;
@@ -46,9 +40,6 @@ interface CameraFeedProps {
   onPause?: () => void;
   onResume?: () => void;
   onFinishWorkout?: () => void;
-  onCountdownComplete?: () => void;
-  onCountdownCancel?: () => void;
-  onUpdateCountdownDuration?: (seconds: number) => void;
 }
 
 export function CameraFeed({
@@ -65,7 +56,6 @@ export function CameraFeed({
   analysis,
   settings,
   stats,
-  isCountdownActive = false,
   unlockedAppName,
   onStartCamera,
   onStopCamera,
@@ -74,9 +64,6 @@ export function CameraFeed({
   onPause,
   onResume,
   onFinishWorkout,
-  onCountdownComplete,
-  onCountdownCancel,
-  onUpdateCountdownDuration,
 }: CameraFeedProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -123,9 +110,9 @@ export function CameraFeed({
         </button>
       </div>
 
-      {/* 2. BIG REPUTATION COUNTER HUD (Visual Focus) */}
+      {/* 2. BIG REPETITION COUNTER HUD (Visual Focus) */}
       <div className="absolute top-16 inset-x-0 z-30 flex flex-col items-center pointer-events-none px-4">
-        <div className="flex flex-col items-center bg-black/50 backdrop-blur-md px-6 py-2 rounded-3xl border border-white/10 shadow-lg">
+        <div className="flex flex-col items-center bg-black/60 backdrop-blur-md px-6 py-2.5 rounded-3xl border border-white/15 shadow-xl">
           <div className="text-4xl sm:text-5xl font-black font-mono tracking-tight text-white flex items-baseline gap-2">
             <span className="text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.5)]">
               {totalReps}
@@ -280,17 +267,6 @@ export function CameraFeed({
           <span>Finish Session</span>
         </button>
       </div>
-
-      {/* Pre-Workout Countdown Overlay */}
-      <PreWorkoutCountdown
-        isOpen={isCountdownActive}
-        durationSeconds={settings.countdownSeconds || 5}
-        isPoseDetected={!!analysis?.landmarksVisible}
-        settings={settings}
-        onComplete={() => onCountdownComplete?.()}
-        onCancel={() => onCountdownCancel?.()}
-        onUpdateDuration={(sec) => onUpdateCountdownDuration?.(sec)}
-      />
     </div>
   );
 }

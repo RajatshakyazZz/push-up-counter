@@ -159,9 +159,6 @@ export default function PushLockApp() {
     updateSettings,
   } = usePushUpTracker();
 
-  // Pre-workout countdown buffer state
-  const [isCountdownActive, setIsCountdownActive] = useState(false);
-
   // Callback wrapper for PoseDetector
   const onPoseFrame = useCallback(
     (analysis: PoseAnalysis) => {
@@ -187,52 +184,17 @@ export default function PushLockApp() {
     switchCamera,
   } = usePoseDetector(settings, phase, onPoseFrame);
 
-  // Check for goal completion after rep count change
-  const prevRepsRef = useRef(stats.totalReps);
-  useEffect(() => {
-    if (
-      activeUnlockingApp &&
-      stats.totalReps >= activeUnlockingApp.targetReps &&
-      prevRepsRef.current < activeUnlockingApp.targetReps &&
-      stats.isActive
-    ) {
-      // Complete app unlock natively (do not auto-launch immediately so user sees the celebration modal)
-      androidAppLocker.unlockApp(
-        activeUnlockingApp.packageName,
-        activeUnlockingApp.unlockMinutes,
-        stats.totalReps,
-        false
-      );
-
-      // Refresh storage states
-      setProtectedApps(androidAppLocker.getProtectedApps());
-      setActiveSessions(androidAppLocker.getActiveUnlockSessions());
-      setWorkoutHistory(androidAppLocker.getWorkoutHistory());
-
-      // Open celebration summary modal
-      pauseWorkout();
-      setIsSummaryOpen(true);
-    }
-    prevRepsRef.current = stats.totalReps;
-  }, [stats.totalReps, stats.isActive, activeUnlockingApp, pauseWorkout]);
-
   // Handler: User clicks "Start Push-ups to Unlock" on the lock screen
   const handleStartUnlockWorkout = (app: ProtectedApp) => {
     setIsLockModalOpen(false);
     setActiveUnlockingApp(app);
-    updateSettings({ targetReps: app.targetReps });
+    resetWorkout();
     setActiveTab('workout');
 
     if (!isCameraActive) {
       startCamera(selectedCameraId);
     }
-
-    const bufferSec = settings.countdownSeconds ?? 5;
-    if (bufferSec > 0) {
-      setIsCountdownActive(true);
-    } else {
-      startWorkout();
-    }
+    startWorkout();
   };
 
   // Handler: Launch the unlocked app immediately from celebration modal
@@ -315,41 +277,36 @@ export default function PushLockApp() {
     if (!isCameraActive) {
       startCamera(selectedCameraId);
     }
-
-    const bufferSec = settings.countdownSeconds ?? 5;
-    if (bufferSec > 0) {
-      setIsCountdownActive(true);
-    } else {
-      startWorkout();
-    }
-  };
-
-  const handleCountdownComplete = () => {
-    setIsCountdownActive(false);
     startWorkout();
   };
 
-  const handleCountdownCancel = () => {
-    setIsCountdownActive(false);
-  };
-
-  const handleFinishWorkout = () => {
-    setIsCountdownActive(false);
+  const handleFinishWorkout = async () => {
     pauseWorkout();
 
-    // If free workout, log to history
-    if (stats.totalReps > 0) {
+    const reps = stats.totalReps;
+    if (activeUnlockingApp) {
+      if (reps > 0) {
+        // Unlock target app for 1 minute per push-up
+        await androidAppLocker.unlockApp(
+          activeUnlockingApp.packageName,
+          reps,
+          reps,
+          false
+        );
+        setProtectedApps(androidAppLocker.getProtectedApps());
+        setActiveSessions(androidAppLocker.getActiveUnlockSessions());
+        setWorkoutHistory(androidAppLocker.getWorkoutHistory());
+      }
+    } else if (reps > 0) {
       androidAppLocker.logWorkoutSession({
         id: `workout-${Date.now()}`,
         date: new Date().toISOString().split('T')[0],
         timestamp: Date.now(),
-        reps: stats.totalReps,
+        reps: reps,
         durationSeconds: stats.elapsedSeconds,
-        unlockedAppName: activeUnlockingApp ? activeUnlockingApp.name : undefined,
-        unlockedPackageName: activeUnlockingApp ? activeUnlockingApp.packageName : undefined,
         formAccuracy: stats.avgFormScore,
         caloriesBurned: stats.caloriesBurned,
-        type: activeUnlockingApp ? 'app_unlock' : 'free_workout',
+        type: 'free_workout',
       });
       setWorkoutHistory(androidAppLocker.getWorkoutHistory());
     }
@@ -363,12 +320,7 @@ export default function PushLockApp() {
     if (!isCameraActive) {
       startCamera(selectedCameraId);
     }
-    const bufferSec = settings.countdownSeconds ?? 5;
-    if (bufferSec > 0) {
-      setIsCountdownActive(true);
-    } else {
-      startWorkout();
-    }
+    startWorkout();
   };
 
   // If first launch, show permission onboarding screen
@@ -395,6 +347,46 @@ export default function PushLockApp() {
           onOpenGuide={() => setIsGuideOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
         />
+      )}
+
+      {/* Real-time Notification Bar for Active Unlocked Sessions */}
+      {activeTab !== 'workout' && activeSessions.length > 0 && (
+        <div className="w-full bg-emerald-800 text-white shadow-md border-b border-emerald-900 animate-in fade-in duration-200">
+          <div className="max-w-4xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5 truncate">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <div className="truncate">
+                <span className="font-black uppercase tracking-wider text-emerald-300 mr-1.5">
+                  Live Status:
+                </span>
+                <span className="font-bold text-white">
+                  {activeSessions[0].appName} Unlocked
+                </span>
+                <span className="text-emerald-200 ml-1.5 font-mono font-bold">
+                  ({Math.max(1, Math.ceil((activeSessions[0].expiresAt - Date.now()) / 60000))}m left)
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  const targetApp = protectedApps.find((a) => a.packageName === activeSessions[0].packageName);
+                  if (targetApp) handleExtendApp(targetApp);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white font-bold cursor-pointer transition-colors"
+              >
+                + Push-ups
+              </button>
+              <button
+                onClick={() => handleRelockApp(activeSessions[0].packageName)}
+                className="px-2.5 py-1 rounded-lg bg-red-600/80 hover:bg-red-600 text-white font-bold cursor-pointer transition-colors"
+              >
+                Lock
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Main Tab Screen Content */}
@@ -444,7 +436,6 @@ export default function PushLockApp() {
             analysis={latestAnalysis}
             settings={settings}
             stats={stats}
-            isCountdownActive={isCountdownActive}
             unlockedAppName={activeUnlockingApp ? activeUnlockingApp.name : undefined}
             onStartCamera={() => startCamera(selectedCameraId)}
             onStopCamera={stopCamera}
@@ -456,9 +447,6 @@ export default function PushLockApp() {
             onPause={pauseWorkout}
             onResume={resumeWorkout}
             onFinishWorkout={handleFinishWorkout}
-            onCountdownComplete={handleCountdownComplete}
-            onCountdownCancel={handleCountdownCancel}
-            onUpdateCountdownDuration={(sec) => updateSettings({ countdownSeconds: sec })}
           />
         )}
 

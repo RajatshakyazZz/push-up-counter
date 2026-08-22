@@ -43,6 +43,8 @@ export interface PushLockAppLockerPluginInterface {
   checkAllPermissions(): Promise<PermissionCheckResult>;
   requestCameraPermission(): Promise<{ granted: boolean }>;
   requestOverlayPermission(): Promise<{ granted?: boolean; success?: boolean }>;
+  requestBatteryOptimization(): Promise<{ granted?: boolean; success?: boolean }>;
+  requestNotificationPermission(): Promise<{ granted: boolean }>;
   openProtectionSettings(): Promise<{ success: boolean }>;
   openAutoStartSettings(): Promise<{ success: boolean }>;
   isProtectionServiceEnabled(): Promise<{ enabled: boolean; serviceRunning: boolean; settingsEnabled: boolean }>;
@@ -154,36 +156,89 @@ export class AndroidAppLockerService {
     if (this.isNative) {
       try {
         const res = await NativeLocker.checkAllPermissions();
-        return res;
+        if (res) return res;
       } catch (e) {
         console.error('Failed to query native permissions:', e);
       }
     }
 
-    // Default web simulation status (allows web testing)
+    let cameraGranted = false;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+        const status = await navigator.permissions.query({ name: 'camera' as PermissionName });
+        cameraGranted = status.state === 'granted';
+      }
+    } catch {
+      // Permission query not supported on all browsers
+    }
+
     return {
-      camera: true,
+      camera: cameraGranted,
       overlay: true,
       accessibility: true,
+      batteryOptimization: true,
+      notification: true,
       isOemRequiringAutoStart: false,
-      manufacturer: 'Web Browser',
-      allRequiredGranted: true,
+      manufacturer: 'Browser Preview',
+      allRequiredGranted: cameraGranted,
     };
   }
 
   /**
-   * Request real Android Camera permission
+   * Request Android Battery Optimization Exemption
+   */
+  public async requestBatteryOptimization(): Promise<void> {
+    if (this.isNative) {
+      try {
+        await NativeLocker.requestBatteryOptimization();
+        return;
+      } catch (e) {
+        console.error('Failed to request battery optimization:', e);
+      }
+    }
+  }
+
+  /**
+   * Request Android 13+ Notification Permission
+   */
+  public async requestNotificationPermission(): Promise<boolean> {
+    if (this.isNative) {
+      try {
+        const res = await NativeLocker.requestNotificationPermission();
+        return !!res?.granted;
+      } catch (e) {
+        console.error('Failed to request notification permission:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Request real Android Camera permission or WebRTC camera stream
    */
   public async requestCameraPermission(): Promise<boolean> {
     if (this.isNative) {
       try {
         const res = await NativeLocker.requestCameraPermission();
-        return !!res.granted;
+        if (res?.granted) {
+          return true;
+        }
       } catch (e) {
         console.error('Native camera permission request failed:', e);
       }
     }
-    return true;
+
+    // Always attempt getUserMedia to prompt webview / browser permission dialog
+    try {
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        stream.getTracks().forEach((t) => t.stop());
+        return true;
+      }
+    } catch (err) {
+      console.warn('Web camera stream request failed or denied:', err);
+    }
+    return false;
   }
 
   /**
