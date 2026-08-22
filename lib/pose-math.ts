@@ -50,61 +50,108 @@ export function calculateAngle(
 }
 
 /**
- * Adaptive Velocity Landmark Smoother
- * Eliminates skeleton jitter/shake while maintaining zero-latency tracking during fast push-ups.
+ * 1 Euro Filter for ultra-smooth, jitter-free and lag-free landmark tracking
+ */
+export class OneEuroFilter {
+  private freq: number;
+  private minCutoff: number;
+  private beta: number;
+  private dCutoff: number;
+  private xPrev: number | null = null;
+  private dxPrev: number = 0;
+  private tPrev: number | null = null;
+
+  constructor(freq = 30, minCutoff = 1.0, beta = 0.02, dCutoff = 1.0) {
+    this.freq = freq;
+    this.minCutoff = minCutoff;
+    this.beta = beta;
+    this.dCutoff = dCutoff;
+  }
+
+  private alpha(cutoff: number): number {
+    const te = 1.0 / this.freq;
+    const tau = 1.0 / (2 * Math.PI * cutoff);
+    return 1.0 / (1.0 + tau / te);
+  }
+
+  public filter(x: number, timestampSec?: number): number {
+    const nowSec = timestampSec ?? performance.now() / 1000;
+    if (this.xPrev === null || this.tPrev === null) {
+      this.xPrev = x;
+      this.tPrev = nowSec;
+      this.dxPrev = 0;
+      return x;
+    }
+    const dt = nowSec - this.tPrev;
+    this.freq = 1.0 / (dt > 0.001 ? dt : 1 / 30);
+    const dx = (x - this.xPrev) * this.freq;
+    const dxSmoothed = this.dxPrev + this.alpha(this.dCutoff) * (dx - this.dxPrev);
+    const cutoff = this.minCutoff + this.beta * Math.abs(dxSmoothed);
+    const xSmoothed = this.xPrev + this.alpha(cutoff) * (x - this.xPrev);
+    this.xPrev = xSmoothed;
+    this.dxPrev = dxSmoothed;
+    this.tPrev = nowSec;
+    return xSmoothed;
+  }
+
+  public reset(): void {
+    this.xPrev = null;
+    this.dxPrev = 0;
+    this.tPrev = null;
+  }
+}
+
+/**
+ * One Euro Multi-Landmark Filter
+ * Eliminates all skeleton shake/jitter without introducing latency during rapid push-ups.
  */
 export class LandmarkSmoother {
+  private xFilters: OneEuroFilter[] = [];
+  private yFilters: OneEuroFilter[] = [];
+  private zFilters: OneEuroFilter[] = [];
   private prevLandmarks: Landmark[] | null = null;
+  private holdFrames: number[] = [];
 
   constructor(_initialAlpha?: number) {}
 
-  public smooth(landmarks: Landmark[]): Landmark[] {
+  public smooth(landmarks: Landmark[], timestampSec?: number): Landmark[] {
     if (!landmarks || landmarks.length === 0) {
-      this.prevLandmarks = null;
+      this.reset();
       return [];
     }
 
-    if (!this.prevLandmarks || this.prevLandmarks.length !== landmarks.length) {
-      this.prevLandmarks = landmarks.map((lm) => ({ ...lm }));
-      return landmarks;
+    const t = timestampSec ?? performance.now() / 1000;
+
+    if (this.xFilters.length !== landmarks.length) {
+      this.xFilters = landmarks.map(() => new OneEuroFilter(30, 1.0, 0.03, 1.0));
+      this.yFilters = landmarks.map(() => new OneEuroFilter(30, 1.0, 0.03, 1.0));
+      this.zFilters = landmarks.map(() => new OneEuroFilter(30, 1.0, 0.03, 1.0));
+      this.holdFrames = landmarks.map(() => 0);
     }
 
     const smoothed: Landmark[] = landmarks.map((curr, i) => {
-      const prev = this.prevLandmarks![i];
-      const currVis = curr.visibility ?? curr.presence ?? 0.5;
-      const prevVis = prev.visibility ?? prev.presence ?? 0.5;
+      const vis = curr.visibility ?? curr.presence ?? 0.5;
 
-      // Calculate 2D velocity of this keypoint
-      const dx = curr.x - prev.x;
-      const dy = curr.y - prev.y;
-      const velocity = Math.sqrt(dx * dx + dy * dy);
-
-      // Clamp extreme 1-frame coordinate teleport artifacts
-      let targetX = curr.x;
-      let targetY = curr.y;
-      if (velocity > 0.16) {
-        targetX = prev.x + (dx / velocity) * 0.16;
-        targetY = prev.y + (dy / velocity) * 0.16;
+      // If confidence drops momentarily (< 0.18), hold last smoothed position up to 4 frames
+      if (vis < 0.18 && this.prevLandmarks && this.prevLandmarks[i] && this.holdFrames[i] < 4) {
+        this.holdFrames[i]++;
+        return {
+          ...this.prevLandmarks[i],
+          visibility: vis,
+        };
       }
+      this.holdFrames[i] = 0;
 
-      // Dynamic adaptive smoothing:
-      // - Near-zero movement: Heavy smoothing (alpha = 0.25) -> rock solid skeleton, zero shake
-      // - Rapid push-up movement: High responsiveness (alpha = 0.78) -> zero latency
-      const dynamicAlpha = Math.min(0.85, Math.max(0.25, 0.25 + (velocity / 0.035) * 0.60));
+      const smoothX = this.xFilters[i].filter(curr.x, t);
+      const smoothY = this.yFilters[i].filter(curr.y, t);
+      const smoothZ = curr.z !== undefined ? this.zFilters[i].filter(curr.z, t) : undefined;
 
       return {
-        x: dynamicAlpha * targetX + (1 - dynamicAlpha) * prev.x,
-        y: dynamicAlpha * targetY + (1 - dynamicAlpha) * prev.y,
-        z:
-          curr.z !== undefined && prev.z !== undefined
-            ? dynamicAlpha * curr.z + (1 - dynamicAlpha) * prev.z
-            : curr.z,
-        visibility: dynamicAlpha * currVis + (1 - dynamicAlpha) * prevVis,
-        presence:
-          curr.presence !== undefined
-            ? dynamicAlpha * curr.presence +
-              (1 - dynamicAlpha) * (prev.presence ?? curr.presence)
-            : undefined,
+        x: smoothX,
+        y: smoothY,
+        z: smoothZ,
+        visibility: vis,
+        presence: curr.presence,
       };
     });
 
@@ -113,7 +160,11 @@ export class LandmarkSmoother {
   }
 
   public reset(): void {
+    this.xFilters.forEach((f) => f.reset());
+    this.yFilters.forEach((f) => f.reset());
+    this.zFilters.forEach((f) => f.reset());
     this.prevLandmarks = null;
+    this.holdFrames = [];
   }
 }
 
@@ -157,13 +208,13 @@ export interface PostureValidationResult {
 
 /**
  * Strict Push-Up Posture Validation Gate
- * Guarantees skeleton is GREEN only during genuine push-up plank postures,
+ * Guarantees skeleton is GREEN during all push-up phases (top plank, descent, bottom, ascent)
  * and strictly RED for standing upright, sitting, hand waving, or bicep curls.
  */
 export function validatePushUpPosture(
   landmarks: Landmark[],
   variant: 'standard' | 'knee' | 'incline' = 'standard',
-  requiredConfidence: number = 0.25
+  requiredConfidence: number = 0.20
 ): PostureValidationResult {
   if (!landmarks || landmarks.length < 29) {
     return {
@@ -205,7 +256,7 @@ export function validatePushUpPosture(
   const wristConf = (getConf(lWrist) + getConf(rWrist)) / 2;
   const upperBodyConf = (shoulderConf + elbowConf + wristConf) / 3;
 
-  const landmarksVisible = upperBodyConf >= 0.22;
+  const landmarksVisible = upperBodyConf >= 0.20;
   if (!landmarksVisible) {
     return {
       isPositionValid: false,
@@ -236,7 +287,6 @@ export function validatePushUpPosture(
   const shoulderSpan = Math.abs((lShoulder?.x ?? 0) - (rShoulder?.x ?? 0));
   const wristSpan = Math.abs((lWrist?.x ?? 0) - (rWrist?.x ?? 0));
   const avgWristY = ((lWrist?.y ?? 0) + (rWrist?.y ?? 0)) / 2;
-  const avgShoulderY = midShoulder.y;
 
   // Torso vector
   const torsoDx = Math.abs(midShoulder.x - midHip.x);
@@ -247,26 +297,27 @@ export function validatePushUpPosture(
 
   // Lower Target Point (gracefully fall back to knee/hip if ankles in shadow)
   const lLowerPoint =
-    lAnkle && getConf(lAnkle) > 0.15 ? lAnkle : lKnee && getConf(lKnee) > 0.15 ? lKnee : lHip;
+    lAnkle && getConf(lAnkle) > 0.12 ? lAnkle : lKnee && getConf(lKnee) > 0.12 ? lKnee : lHip;
   const rLowerPoint =
-    rAnkle && getConf(rAnkle) > 0.15 ? rAnkle : rKnee && getConf(rKnee) > 0.15 ? rKnee : rHip;
+    rAnkle && getConf(rAnkle) > 0.12 ? rAnkle : rKnee && getConf(rKnee) > 0.12 ? rKnee : rHip;
 
   // 2. Dual-Hand Floor Support Verification
   // In a real push-up:
-  // - BOTH hands must be on the floor below the shoulders
-  // - Neither hand is raised near chin/face (wrist.y must be below shoulder.y)
-  // - Both wrists on floor level (avgWristY >= 0.40)
-  // - Hand symmetry: Both hands rest on the floor plane (|lWrist.y - rWrist.y| <= 0.22)
-  const isLeftWristBelowShoulder = (lWrist?.y ?? 0) >= (lShoulder?.y ?? 0) + 0.10;
-  const isRightWristBelowShoulder = (rWrist?.y ?? 0) >= (rShoulder?.y ?? 0) + 0.10;
-  const areWristsOnFloor = avgWristY >= 0.40;
-  const isHandSymmetryValid = Math.abs((lWrist?.y ?? 0) - (rWrist?.y ?? 0)) <= 0.22;
-  const isHandSpanWide = wristSpan >= 0.25 || wristSpan >= 0.60 * Math.max(0.1, shoulderSpan);
+  // - BOTH hands must be supporting on the floor plane
+  // - Hands are in the lower half of the frame (avgWristY >= 0.35)
+  // - Neither hand is raised near chin/face (wrist.y >= shoulder.y - 0.08)
+  // - Hand symmetry: Both hands rest on floor plane (|lWrist.y - rWrist.y| <= 0.25)
+  // - Hand span: Hands spread apart to support torso (wristSpan >= 0.20 or wristSpan >= 0.50 * shoulderSpan)
+  const areWristsOnFloor = avgWristY >= 0.35;
+  const isLeftWristNotAboveShoulder = (lWrist?.y ?? 0) >= (lShoulder?.y ?? 0) - 0.08;
+  const isRightWristNotAboveShoulder = (rWrist?.y ?? 0) >= (rShoulder?.y ?? 0) - 0.08;
+  const isHandSymmetryValid = Math.abs((lWrist?.y ?? 0) - (rWrist?.y ?? 0)) <= 0.25;
+  const isHandSpanWide = wristSpan >= 0.20 || wristSpan >= 0.50 * Math.max(0.1, shoulderSpan);
 
   const areHandsSupporting =
-    isLeftWristBelowShoulder &&
-    isRightWristBelowShoulder &&
     areWristsOnFloor &&
+    isLeftWristNotAboveShoulder &&
+    isRightWristNotAboveShoulder &&
     isHandSymmetryValid &&
     isHandSpanWide;
 
@@ -277,14 +328,14 @@ export function validatePushUpPosture(
     torsoAngleWithHorizontal <= (variant === 'incline' ? 68 : 60);
 
   // Case B: Front View / Diagonal View Push-Up (Phone on floor facing user)
-  // - Shoulders are in upper frame (avgShoulderY <= 0.48)
+  // - Shoulders are in upper/middle frame (midShoulder.y <= 0.55)
   // - Both hands firmly planted on floor in lower frame (areHandsSupporting === true)
-  // - Hips are visible in frame behind/below shoulders (midHip.y >= midShoulder.y + 0.04)
-  const isHipVisible = getConf(lHip) >= 0.15 || getConf(rHip) >= 0.15;
-  const isHipBehindShoulders = midHip.y >= midShoulder.y + 0.04;
+  // - Hips are visible in frame behind/below shoulders (midHip.y >= midShoulder.y - 0.05)
+  const isHipVisible = getConf(lHip) >= 0.12 || getConf(rHip) >= 0.12;
+  const isHipBehindShoulders = midHip.y >= midShoulder.y - 0.05;
   const isFrontFloorPlank =
     areHandsSupporting &&
-    midShoulder.y <= 0.48 &&
+    midShoulder.y <= 0.55 &&
     shoulderSpan >= 0.08 &&
     isHipVisible &&
     isHipBehindShoulders;
@@ -344,7 +395,7 @@ export function validatePushUpPosture(
     } else {
       positionInvalidReason = 'Lower your hips to align with your shoulders and feet';
     }
-    if (spineAngle < 110 || spineAngle > 230) {
+    if (spineAngle < 105 || spineAngle > 235) {
       isPositionValid = false;
     }
   }

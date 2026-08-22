@@ -176,6 +176,23 @@ export function usePoseDetector(
     [startCamera]
   );
 
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  const currentPhaseRef = useRef(currentPhase);
+  useEffect(() => {
+    currentPhaseRef.current = currentPhase;
+  }, [currentPhase]);
+
+  const onPoseFrameRef = useRef(onPoseFrame);
+  useEffect(() => {
+    onPoseFrameRef.current = onPoseFrame;
+  }, [onPoseFrame]);
+
+  const lastStateUpdateTimeRef = useRef<number>(0);
+
   // 6. Frame Loop for Real-time Pose Detection
   useEffect(() => {
     let animationFrameId: number;
@@ -193,6 +210,8 @@ export function usePoseDetector(
         if (video.currentTime !== lastVideoTimeRef.current) {
           lastVideoTimeRef.current = video.currentTime;
           const startTimeMs = performance.now();
+          const currentSettings = settingsRef.current;
+          const currentPhaseVal = currentPhaseRef.current;
 
           // Calculate FPS
           fpsCountRef.current++;
@@ -207,23 +226,29 @@ export function usePoseDetector(
 
             if (results.landmarks && results.landmarks.length > 0) {
               const rawLandmarks = results.landmarks[0] as Landmark[];
-              // Smooth landmarks temporally to eliminate noise spikes
-              const currentLandmarks = smootherRef.current.smooth(rawLandmarks);
-              setLandmarks(currentLandmarks);
+              // Smooth landmarks temporally with OneEuroFilter
+              const currentLandmarks = smootherRef.current.smooth(rawLandmarks, startTimeMs / 1000);
 
               const analysis = analyzePushUpPose(
                 currentLandmarks,
-                settings.upAngleThreshold,
-                settings.downAngleThreshold,
-                settings.pushUpVariant,
-                settings.requiredConfidence
+                currentSettings.upAngleThreshold,
+                currentSettings.downAngleThreshold,
+                currentSettings.pushUpVariant,
+                currentSettings.requiredConfidence
               );
               analysis.smoothedLandmarks = currentLandmarks;
 
-              setLatestAnalysis(analysis);
-              onPoseFrame(analysis);
+              // Send to tracker immediately on every frame (zero latency)
+              onPoseFrameRef.current(analysis);
 
-              // Render skeleton overlay
+              // Throttle React state updates to 10 Hz to prevent UI re-render bottleneck
+              if (startTimeMs - lastStateUpdateTimeRef.current > 100) {
+                lastStateUpdateTimeRef.current = startTimeMs;
+                setLandmarks(currentLandmarks);
+                setLatestAnalysis(analysis);
+              }
+
+              // Render skeleton directly to canvas at 60 FPS
               if (canvas) {
                 if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
                   canvas.width = video.videoWidth;
@@ -238,10 +263,10 @@ export function usePoseDetector(
                     canvas.width,
                     canvas.height,
                     {
-                      showSkeleton: settings.showSkeleton,
-                      showAngles: settings.showAngles,
-                      mirror: settings.mirrorVideo,
-                      phase: currentPhase,
+                      showSkeleton: currentSettings.showSkeleton,
+                      showAngles: currentSettings.showAngles,
+                      mirror: currentSettings.mirrorVideo,
+                      phase: currentPhaseVal,
                     }
                   );
                 }
@@ -270,9 +295,14 @@ export function usePoseDetector(
                 isFullBodyVisible: false,
                 areHandsSupporting: false,
               };
-              setLandmarks([]);
-              setLatestAnalysis(emptyAnalysis);
-              onPoseFrame(emptyAnalysis);
+
+              onPoseFrameRef.current(emptyAnalysis);
+
+              if (startTimeMs - lastStateUpdateTimeRef.current > 150) {
+                lastStateUpdateTimeRef.current = startTimeMs;
+                setLandmarks([]);
+                setLatestAnalysis(emptyAnalysis);
+              }
 
               if (canvas) {
                 const ctx = canvas.getContext('2d');
@@ -299,19 +329,7 @@ export function usePoseDetector(
         cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [
-    isCameraActive,
-    modelLoaded,
-    settings.upAngleThreshold,
-    settings.downAngleThreshold,
-    settings.pushUpVariant,
-    settings.requiredConfidence,
-    settings.showSkeleton,
-    settings.showAngles,
-    settings.mirrorVideo,
-    currentPhase,
-    onPoseFrame,
-  ]);
+  }, [isCameraActive, modelLoaded]);
 
   return {
     videoRef,

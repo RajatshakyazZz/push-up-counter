@@ -153,8 +153,8 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
         soundEffects,
         voiceAnnounce,
         targetReps,
-        minRepDurationMs = 650,
-        minAngleDelta = 35,
+        minRepDurationMs = 280,
+        minAngleDelta = 26,
       } = settingsRef.current;
 
       const {
@@ -296,8 +296,9 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
       }
 
       // 3. STRICT PUSH-UP POSITION GATE ENFORCEMENT
-      // If position is invalid (standing, sitting, waving hands, camera shifted),
-      // DO NOT allow rep progression, cancel any active in-flight rep, and hold in idle/position_check.
+      // If position is invalid (standing, sitting, waving hands),
+      // FREEZE the state machine without instantly killing in-flight reps on 1 noisy frame.
+      // Only reset to idle if posture remains invalid for > 25 consecutive frames (~1 second).
       if (!isPositionValid) {
         consecutivePositionFramesRef.current = 0;
         consecutiveDownFramesRef.current = 0;
@@ -310,9 +311,7 @@ export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
           currentPhase === 'ready' ||
           currentPhase === 'up'
         ) {
-          reachedBottomRef.current = false;
-          phaseRef.current = 'idle';
-          setPhase('idle');
+          // Freeze state during momentary posture noise, do not clear reachedBottomRef immediately
         }
 
         if (orientation === 'vertical' || !isPlankOrientation) {

@@ -29,6 +29,11 @@ interface RenderOptions {
   phase: string;
 }
 
+let currentColorR = 239;
+let currentColorG = 68;
+let currentColorB = 68;
+let lastColorTime = typeof performance !== 'undefined' ? performance.now() : 0;
+
 /**
  * Draws the interactive fitness pose skeleton on the canvas
  */
@@ -56,13 +61,22 @@ export function drawPoseSkeleton(
   const isGoodPosition = analysis.isPositionValid;
   const isDown = analysis.depthPercentage >= 90;
 
-  // Vibrant Electric Green when in valid push-up posture (stays green throughout up/down pushups)
-  // Bright Warning Red when posture is invalid (standing, sitting, wrong angle)
-  const baseColor = isGoodPosition
-    ? (isDown ? '#a3e635' : '#22c55e') // Vibrant Electric Green / Lime-400
-    : '#ef4444'; // Bright Warning Red
+  // Smooth color transition between Red (#ef4444) and Electric Green (#22c55e) over ~150ms
+  const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const dt = Math.min(0.1, (now - lastColorTime) / 1000);
+  lastColorTime = now;
 
-  const glowShadowColor = isGoodPosition ? '#22c55e' : '#ef4444';
+  const targetR = isGoodPosition ? (isDown ? 163 : 34) : 239;
+  const targetG = isGoodPosition ? (isDown ? 230 : 197) : 68;
+  const targetB = isGoodPosition ? (isDown ? 53 : 94) : 68;
+
+  const colorLerpSpeed = 14.0;
+  currentColorR += (targetR - currentColorR) * Math.min(1, colorLerpSpeed * dt);
+  currentColorG += (targetG - currentColorG) * Math.min(1, colorLerpSpeed * dt);
+  currentColorB += (targetB - currentColorB) * Math.min(1, colorLerpSpeed * dt);
+
+  const baseColor = `rgb(${Math.round(currentColorR)}, ${Math.round(currentColorG)}, ${Math.round(currentColorB)})`;
+  const glowShadowColor = baseColor;
 
   // 1. Draw connections (Bones)
   ctx.lineWidth = 4.5;
