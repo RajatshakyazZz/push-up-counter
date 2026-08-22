@@ -251,54 +251,45 @@ export function validatePushUpPosture(
   const rLowerPoint =
     rAnkle && getConf(rAnkle) > 0.15 ? rAnkle : rKnee && getConf(rKnee) > 0.15 ? rKnee : rHip;
 
-  // 2. Strict Dual-Hand Floor Support Verification
+  // 2. Dual-Hand Floor Support Verification
   // In a real push-up:
-  // - BOTH hands must be supporting on the ground below the shoulders
-  // - Left wrist must be below left shoulder (y_lWrist >= y_lShoulder + 0.06)
-  // - Right wrist must be below right shoulder (y_rWrist >= y_rShoulder + 0.06)
-  // - Neither hand can be raised in the air near the chin/face (y_wrist < 0.35 or y_wrist < y_shoulder)
-  // - Both wrists must be on approximately the same floor plane (|y_lWrist - y_rWrist| <= 0.20)
-  const isLeftWristSupporting =
-    (lWrist?.y ?? 0) >= (lShoulder?.y ?? 0) + 0.05 && (lWrist?.y ?? 0) >= 0.35;
-  const isRightWristSupporting =
-    (rWrist?.y ?? 0) >= (rShoulder?.y ?? 0) + 0.05 && (rWrist?.y ?? 0) >= 0.35;
-  const isHandSymmetryValid =
-    Math.abs((lWrist?.y ?? 0) - (rWrist?.y ?? 0)) <= 0.20;
-
-  // In standing/sitting, hands are near waist, face, or narrow span
-  const isHandSpanValid = wristSpan >= 0.20 || wristSpan >= 0.50 * Math.max(0.1, shoulderSpan);
+  // - BOTH hands must be on the floor below the shoulders
+  // - Neither hand is raised near chin/face (wrist.y must be below shoulder.y)
+  // - Both wrists on floor level (avgWristY >= 0.40)
+  // - Hand symmetry: Both hands rest on the floor plane (|lWrist.y - rWrist.y| <= 0.22)
+  const isLeftWristBelowShoulder = (lWrist?.y ?? 0) >= (lShoulder?.y ?? 0) + 0.10;
+  const isRightWristBelowShoulder = (rWrist?.y ?? 0) >= (rShoulder?.y ?? 0) + 0.10;
+  const areWristsOnFloor = avgWristY >= 0.40;
+  const isHandSymmetryValid = Math.abs((lWrist?.y ?? 0) - (rWrist?.y ?? 0)) <= 0.22;
+  const isHandSpanWide = wristSpan >= 0.25 || wristSpan >= 0.60 * Math.max(0.1, shoulderSpan);
 
   const areHandsSupporting =
-    isLeftWristSupporting &&
-    isRightWristSupporting &&
+    isLeftWristBelowShoulder &&
+    isRightWristBelowShoulder &&
+    areWristsOnFloor &&
     isHandSymmetryValid &&
-    isHandSpanValid;
+    isHandSpanWide;
 
-  // 3. Multi-Angle Push-Up Plank vs Standing/Sitting Detection
-  // Case A: Side Profile View (Camera on side)
+  // 3. Multi-Angle Push-Up Posture Detection
+  // Case A: Side Profile View (Camera positioned to the side of user)
   const isSidePlank =
     areHandsSupporting &&
     torsoAngleWithHorizontal <= (variant === 'incline' ? 68 : 60);
 
-  // Case B: Front View / Diagonal View Push-Up (Phone on floor looking at user)
-  // - Both hands firmly planted on floor (areHandsSupporting === true)
-  // - Shoulders are visible in upper frame
-  // - Hips are visible in frame below shoulders (midHip.y > midShoulder.y + 0.08)
-  const isHipPositionValid =
-    (getConf(lHip) >= 0.18 || getConf(rHip) >= 0.18) &&
-    midHip.y >= midShoulder.y + 0.06;
-
-  const isFrontOrDiagonalPlank =
+  // Case B: Front View / Diagonal View Push-Up (Phone on floor facing user)
+  // - Shoulders are in upper frame (avgShoulderY <= 0.48)
+  // - Both hands firmly planted on floor in lower frame (areHandsSupporting === true)
+  // - Hips are visible in frame behind/below shoulders (midHip.y >= midShoulder.y + 0.04)
+  const isHipVisible = getConf(lHip) >= 0.15 || getConf(rHip) >= 0.15;
+  const isHipBehindShoulders = midHip.y >= midShoulder.y + 0.04;
+  const isFrontFloorPlank =
     areHandsSupporting &&
+    midShoulder.y <= 0.48 &&
     shoulderSpan >= 0.08 &&
-    isHipPositionValid;
+    isHipVisible &&
+    isHipBehindShoulders;
 
-  // Rejection check for Standing / Sitting Upright
-  const isUprightStandingOrSitting =
-    !isSidePlank &&
-    (torsoAngleWithHorizontal > 68 || !areHandsSupporting || !isHipPositionValid || avgWristY < 0.35);
-
-  const isPlankOrientation = (isSidePlank || isFrontOrDiagonalPlank) && !isUprightStandingOrSitting;
+  const isPlankOrientation = isSidePlank || isFrontFloorPlank;
 
   const orientation: 'horizontal' | 'vertical' | 'unknown' = isPlankOrientation
     ? 'horizontal'
