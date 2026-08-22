@@ -302,22 +302,17 @@ export function validatePushUpPosture(
     rAnkle && getConf(rAnkle) > 0.12 ? rAnkle : rKnee && getConf(rKnee) > 0.12 ? rKnee : rHip;
 
   // 2. Dual-Hand Floor Support Verification
-  // In a real push-up:
-  // - BOTH hands must be supporting on the floor plane
-  // - Hands are in the lower half of the frame (avgWristY >= 0.35)
-  // - Neither hand is raised near chin/face (wrist.y >= shoulder.y - 0.08)
-  // - Hand symmetry: Both hands rest on floor plane (|lWrist.y - rWrist.y| <= 0.25)
-  // - Hand span: Hands spread apart to support torso (wristSpan >= 0.20 or wristSpan >= 0.50 * shoulderSpan)
-  const areWristsOnFloor = avgWristY >= 0.35;
-  const isLeftWristNotAboveShoulder = (lWrist?.y ?? 0) >= (lShoulder?.y ?? 0) - 0.08;
-  const isRightWristNotAboveShoulder = (rWrist?.y ?? 0) >= (rShoulder?.y ?? 0) - 0.08;
-  const isHandSymmetryValid = Math.abs((lWrist?.y ?? 0) - (rWrist?.y ?? 0)) <= 0.25;
-  const isHandSpanWide = wristSpan >= 0.20 || wristSpan >= 0.50 * Math.max(0.1, shoulderSpan);
+  // In a real push-up (both at top plank and deep bottom descent):
+  // - BOTH hands remain planted on the floor plane (avgWristY >= 0.30)
+  // - Hand symmetry: Both hands rest on floor plane (|lWrist.y - rWrist.y| <= 0.28)
+  // - Hand span: Hands spread apart to support torso (wristSpan >= 0.18 or wristSpan >= 0.45 * shoulderSpan)
+  // - Neither hand is raised near face while standing (avgWristY >= 0.28)
+  const areWristsOnFloor = avgWristY >= 0.28;
+  const isHandSymmetryValid = Math.abs((lWrist?.y ?? 0) - (rWrist?.y ?? 0)) <= 0.28;
+  const isHandSpanWide = wristSpan >= 0.18 || wristSpan >= 0.40 * Math.max(0.1, shoulderSpan);
 
   const areHandsSupporting =
     areWristsOnFloor &&
-    isLeftWristNotAboveShoulder &&
-    isRightWristNotAboveShoulder &&
     isHandSymmetryValid &&
     isHandSpanWide;
 
@@ -325,22 +320,33 @@ export function validatePushUpPosture(
   // Case A: Side Profile View (Camera positioned to the side of user)
   const isSidePlank =
     areHandsSupporting &&
-    torsoAngleWithHorizontal <= (variant === 'incline' ? 68 : 60);
+    torsoAngleWithHorizontal <= (variant === 'incline' ? 68 : 62);
 
   // Case B: Front View / Diagonal View Push-Up (Phone on floor facing user)
-  // - Shoulders are in upper/middle frame (midShoulder.y <= 0.55)
-  // - Both hands firmly planted on floor in lower frame (areHandsSupporting === true)
-  // - Hips are visible in frame behind/below shoulders (midHip.y >= midShoulder.y - 0.05)
-  const isHipVisible = getConf(lHip) >= 0.12 || getConf(rHip) >= 0.12;
-  const isHipBehindShoulders = midHip.y >= midShoulder.y - 0.05;
+  // - Both hands firmly planted on floor (areHandsSupporting === true)
+  // - Shoulders are visible in frame supporting upper body
+  // - Hips or lower body extend behind in the frame (getConf(lHip) > 0.10 || getConf(rHip) > 0.10)
+  const isLowerBodyVisible =
+    getConf(lHip) >= 0.10 ||
+    getConf(rHip) >= 0.10 ||
+    getConf(lKnee) >= 0.10 ||
+    getConf(rKnee) >= 0.10;
+
+  // Rejection check for Standing Upright Full Body in View
+  const midLowerY = ((lLowerPoint?.y ?? 0) + (rLowerPoint?.y ?? 0)) / 2;
+  const isStandingUpright =
+    midShoulder.y < 0.30 &&
+    midLowerY > 0.75 &&
+    torsoAngleWithHorizontal > 72 &&
+    (avgWristY < midShoulder.y + 0.15 || wristSpan < 0.22);
+
   const isFrontFloorPlank =
     areHandsSupporting &&
-    midShoulder.y <= 0.55 &&
     shoulderSpan >= 0.08 &&
-    isHipVisible &&
-    isHipBehindShoulders;
+    isLowerBodyVisible &&
+    !isStandingUpright;
 
-  const isPlankOrientation = isSidePlank || isFrontFloorPlank;
+  const isPlankOrientation = (isSidePlank || isFrontFloorPlank) && !isStandingUpright;
 
   const orientation: 'horizontal' | 'vertical' | 'unknown' = isPlankOrientation
     ? 'horizontal'
@@ -377,10 +383,10 @@ export function validatePushUpPosture(
   let isBodyStraight = true;
 
   if (isSidePlank) {
-    if (spineAngle < 125) {
+    if (spineAngle < 120) {
       hipAlignmentStatus = 'sagging';
       isBodyStraight = false;
-    } else if (spineAngle > 215) {
+    } else if (spineAngle > 220) {
       hipAlignmentStatus = 'piked';
       isBodyStraight = false;
     }
@@ -395,7 +401,7 @@ export function validatePushUpPosture(
     } else {
       positionInvalidReason = 'Lower your hips to align with your shoulders and feet';
     }
-    if (spineAngle < 105 || spineAngle > 235) {
+    if (spineAngle < 100 || spineAngle > 240) {
       isPositionValid = false;
     }
   }
