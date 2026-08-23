@@ -54,6 +54,9 @@ class PushLockAppLockerPlugin : Plugin() {
         @Volatile
         var pendingLockTrigger: JSObject? = null
 
+        @Volatile
+        var pendingNavigation: String? = null
+
         fun notifyLockTrigger(
             packageName: String,
             appName: String,
@@ -63,6 +66,15 @@ class PushLockAppLockerPlugin : Plugin() {
             iconName: String,
             color: String
         ) {
+            val iconDataUri = activeInstance?.let { plugin ->
+                try {
+                    val drawable = plugin.context.packageManager.getApplicationIcon(packageName)
+                    plugin.inventoryManager.getAppIconDataUri(packageName, drawable)
+                } catch (e: Exception) {
+                    ""
+                }
+            } ?: ""
+
             val payload = JSObject().apply {
                 put("packageName", packageName)
                 put("name", appName)
@@ -71,6 +83,9 @@ class PushLockAppLockerPlugin : Plugin() {
                 put("category", category)
                 put("iconName", iconName)
                 put("color", color)
+                if (iconDataUri.isNotEmpty()) {
+                    put("iconDataUri", iconDataUri)
+                }
                 put("timestamp", System.currentTimeMillis())
             }
 
@@ -78,6 +93,16 @@ class PushLockAppLockerPlugin : Plugin() {
 
             activeInstance?.let { plugin ->
                 plugin.notifyListeners("appLockTriggered", payload)
+            }
+        }
+
+        fun notifyNavigateTo(destination: String) {
+            pendingNavigation = destination
+            activeInstance?.let { plugin ->
+                val payload = JSObject().apply {
+                    put("destination", destination)
+                }
+                plugin.notifyListeners("navigateTo", payload)
             }
         }
     }
@@ -364,12 +389,14 @@ class PushLockAppLockerPlugin : Plugin() {
                     manufacturer.contains("realme") ||
                     manufacturer.contains("asus")
 
+            val usageStatsGranted = com.pushlock.ai.blocker.AppBlockerManager.hasUsageStatsPermission(context)
             val allRequiredGranted = cameraGranted && overlayGranted && accessibilityEnabled
 
             val ret = JSObject().apply {
                 put("camera", cameraGranted)
                 put("overlay", overlayGranted)
                 put("accessibility", accessibilityEnabled)
+                put("usageStats", usageStatsGranted)
                 put("batteryOptimization", batteryOptimizationIgnored)
                 put("notification", notificationGranted)
                 put("isOemRequiringAutoStart", isOemRequiringAutoStart)
@@ -643,6 +670,79 @@ class PushLockAppLockerPlugin : Plugin() {
             }
         }
         return false
+    }
+
+    @PluginMethod
+    fun hasUsageStatsPermission(call: PluginCall) {
+        val granted = com.pushlock.ai.blocker.AppBlockerManager.hasUsageStatsPermission(context)
+        val ret = JSObject().apply { put("granted", granted) }
+        call.resolve(ret)
+    }
+
+    @PluginMethod
+    fun openUsageStatsSettings(call: PluginCall) {
+        try {
+            com.pushlock.ai.blocker.AppBlockerManager.openUsageStatsSettings(context)
+            call.resolve(JSObject().apply { put("success", true) })
+        } catch (e: Exception) {
+            call.reject("Failed to open usage stats settings: ${e.message}", e)
+        }
+    }
+
+    @PluginMethod
+    fun startBlockService(call: PluginCall) {
+        try {
+            com.pushlock.ai.blocker.AppBlockerManager.startBlockService(context)
+            call.resolve(JSObject().apply { put("success", true) })
+        } catch (e: Exception) {
+            call.reject("Failed to start block service: ${e.message}", e)
+        }
+    }
+
+    @PluginMethod
+    fun stopBlockService(call: PluginCall) {
+        try {
+            com.pushlock.ai.blocker.AppBlockerManager.stopBlockService(context)
+            call.resolve(JSObject().apply { put("success", true) })
+        } catch (e: Exception) {
+            call.reject("Failed to stop block service: ${e.message}", e)
+        }
+    }
+
+    @PluginMethod
+    fun getRemainingQuota(call: PluginCall) {
+        val quota = com.pushlock.ai.blocker.AppBlockerManager.getRemainingQuota(context)
+        val ret = JSObject().apply { put("remainingSeconds", quota) }
+        call.resolve(ret)
+    }
+
+    @PluginMethod
+    fun setRemainingQuota(call: PluginCall) {
+        val seconds = call.getInt("seconds") ?: 0
+        com.pushlock.ai.blocker.AppBlockerManager.setRemainingQuota(context, seconds.toLong())
+        call.resolve(JSObject().apply { put("success", true) })
+    }
+
+    @PluginMethod
+    fun addEarnedTime(call: PluginCall) {
+        val seconds = call.getInt("seconds") ?: 0
+        com.pushlock.ai.blocker.AppBlockerManager.addEarnedTime(context, seconds.toLong())
+        call.resolve(JSObject().apply { put("success", true) })
+    }
+
+    @PluginMethod
+    fun getPendingNavigation(call: PluginCall) {
+        val nav = pendingNavigation
+        pendingNavigation = null
+        val ret = JSObject().apply {
+            if (nav != null) {
+                put("hasNavigation", true)
+                put("destination", nav)
+            } else {
+                put("hasNavigation", false)
+            }
+        }
+        call.resolve(ret)
     }
 
     override fun handleOnDestroy() {

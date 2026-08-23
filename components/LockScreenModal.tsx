@@ -26,6 +26,21 @@ export function LockScreenModal({
   onClose,
   onStartUnlockWorkout,
 }: LockScreenModalProps) {
+  const iconDataUri = React.useMemo(() => {
+    if (app?.iconDataUri) return app.iconDataUri;
+    if (typeof window !== 'undefined' && app?.packageName) {
+      try {
+        const cachedRaw = localStorage.getItem('pushlock_installed_apps_cache');
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          const found = cached.find((a: { packageName: string; iconDataUri?: string }) => a.packageName === app.packageName);
+          if (found?.iconDataUri) return found.iconDataUri;
+        }
+      } catch {}
+    }
+    return undefined;
+  }, [app]);
+
   if (!isOpen || !app) return null;
 
   const handleStartWorkout = () => {
@@ -34,9 +49,9 @@ export function LockScreenModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150 select-none">
       <div
-        className="relative w-full max-w-md bg-white rounded-[2rem] shadow-2xl border border-gray-100 overflow-hidden flex flex-col p-6 sm:p-8 text-center"
+        className="relative w-full max-w-md bg-white rounded-[2rem] shadow-2xl border border-gray-100 overflow-hidden flex flex-col p-6 sm:p-8 text-center animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Close Button */}
@@ -63,7 +78,7 @@ export function LockScreenModal({
               iconName={app.iconName}
               name={app.name}
               color={app.color}
-              iconDataUri={app.iconDataUri}
+              iconDataUri={iconDataUri}
               size="xl"
               className="shadow-xl ring-4 ring-gray-50"
             />

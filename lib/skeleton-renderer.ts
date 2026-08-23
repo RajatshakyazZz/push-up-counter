@@ -59,7 +59,7 @@ export function drawPoseSkeleton(
   };
 
   const isGoodPosition = analysis.isPositionValid && analysis.isBodyStraight;
-  const isDown = analysis.depthPercentage >= 80 || analysis.elbowAngle <= 102;
+  const isDown = options.phase === 'down' || analysis.depthPercentage >= 80 || analysis.elbowAngle <= 85;
 
   // Colors: Red (#FF3B30) for bad form, Neon Green (#34C759) for full depth, Electric Cyan (#00E5FF) for standard
   const now = typeof performance !== 'undefined' ? performance.now() : Date.now();

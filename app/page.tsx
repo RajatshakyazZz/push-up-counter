@@ -184,6 +184,37 @@ export default function PushLockApp() {
     switchCamera,
   } = usePoseDetector(settings, phase, onPoseFrame);
 
+  // Subscribe to notification navigation events (e.g. from status bar "Earn Time" button)
+  useEffect(() => {
+    let navHandle: any = null;
+
+    // Check on startup
+    androidAppLocker.getPendingNavigation().then((dest) => {
+      if (dest === 'WORKOUT') {
+        setActiveTab('workout');
+        if (!isCameraActive) {
+          startCamera();
+        }
+        startWorkout();
+      }
+    });
+
+    // Real-time listener
+    androidAppLocker.listenForNavigation((dest) => {
+      if (dest === 'WORKOUT') {
+        setActiveTab('workout');
+        if (!isCameraActive) {
+          startCamera();
+        }
+        startWorkout();
+      }
+    }).then((h) => { navHandle = h; });
+
+    return () => {
+      if (navHandle?.remove) navHandle.remove();
+    };
+  }, [isCameraActive, startCamera, startWorkout]);
+
   // Handler: User clicks "Start Push-ups to Unlock" on the lock screen
   const handleStartUnlockWorkout = (app: ProtectedApp) => {
     setIsLockModalOpen(false);
@@ -298,6 +329,7 @@ export default function PushLockApp() {
         setWorkoutHistory(androidAppLocker.getWorkoutHistory());
       }
     } else if (reps > 0) {
+      await androidAppLocker.addEarnedTime(reps * 60);
       androidAppLocker.logWorkoutSession({
         id: `workout-${Date.now()}`,
         date: new Date().toISOString().split('T')[0],

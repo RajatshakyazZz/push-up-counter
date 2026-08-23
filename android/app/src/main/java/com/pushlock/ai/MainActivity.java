@@ -3,6 +3,8 @@ package com.pushlock.ai;
 import android.content.Intent;
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
+import com.pushlock.ai.blocker.AppBlockerManager;
+import com.pushlock.ai.notification.PushLockNotificationManager;
 import com.pushlock.ai.plugin.PushLockAppLockerPlugin;
 import com.pushlock.ai.service.PushLockAccessibilityService;
 
@@ -12,6 +14,8 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(PushLockAppLockerPlugin.class);
         super.onCreate(savedInstanceState);
+        AppBlockerManager.INSTANCE.init(this);
+        AppBlockerManager.INSTANCE.startBlockService(this);
         handleIncomingLockIntent(getIntent());
     }
 
@@ -24,9 +28,15 @@ public class MainActivity extends BridgeActivity {
 
     private void handleIncomingLockIntent(Intent intent) {
         if (intent == null) return;
+
+        String navigateTo = intent.getStringExtra(PushLockNotificationManager.EXTRA_NAVIGATE_TO);
+        if (navigateTo != null && !navigateTo.isEmpty()) {
+            PushLockAppLockerPlugin.Companion.notifyNavigateTo(navigateTo);
+        }
+
         String action = intent.getAction();
-        if (com.pushlock.ai.notification.PushLockNotificationManager.ACTION_LOCK_NOW.equals(action)) {
-            String pkgToLock = intent.getStringExtra(com.pushlock.ai.notification.PushLockNotificationManager.EXTRA_PACKAGE_TO_LOCK);
+        if (PushLockNotificationManager.ACTION_LOCK_NOW.equals(action)) {
+            String pkgToLock = intent.getStringExtra(PushLockNotificationManager.EXTRA_PACKAGE_TO_LOCK);
             if (pkgToLock != null && !pkgToLock.isEmpty()) {
                 com.pushlock.ai.storage.NativeAppProtectionStore.Companion.getInstance(this).lockApp(pkgToLock);
                 com.pushlock.ai.service.PushLockAccessibilityService.Companion.onAppManuallyLocked(pkgToLock);
@@ -57,4 +67,3 @@ public class MainActivity extends BridgeActivity {
         }
     }
 }
-

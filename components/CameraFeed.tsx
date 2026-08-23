@@ -75,10 +75,10 @@ export function CameraFeed({
   return (
     <div
       ref={containerRef}
-      className="relative flex flex-col w-full max-w-lg mx-auto bg-black text-white rounded-[2.5rem] overflow-hidden shadow-2xl border border-zinc-800 h-[88vh] sm:h-[82vh]"
+      className="fixed inset-0 z-50 flex flex-col w-full h-full bg-black text-white overflow-hidden select-none"
     >
       {/* 1. TOP BAR */}
-      <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-auto">
+      <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-4 pt-6 sm:pt-4 bg-gradient-to-b from-black/90 via-black/50 to-transparent pointer-events-auto">
         <button
           onClick={() => {
             triggerHaptic('click');

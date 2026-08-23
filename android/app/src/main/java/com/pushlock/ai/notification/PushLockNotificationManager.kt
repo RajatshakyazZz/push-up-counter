@@ -23,6 +23,7 @@ object PushLockNotificationManager {
 
     const val ACTION_LOCK_NOW = "com.pushlock.ai.ACTION_LOCK_NOW"
     const val EXTRA_PACKAGE_TO_LOCK = "package_to_lock"
+    const val EXTRA_NAVIGATE_TO = "EXTRA_NAVIGATE_TO"
 
     private fun ensureNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

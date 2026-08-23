@@ -48,11 +48,23 @@ export interface PushLockAppLockerPluginInterface {
   openProtectionSettings(): Promise<{ success: boolean }>;
   openAutoStartSettings(): Promise<{ success: boolean }>;
   isProtectionServiceEnabled(): Promise<{ enabled: boolean; serviceRunning: boolean; settingsEnabled: boolean }>;
+  hasUsageStatsPermission(): Promise<{ granted: boolean }>;
+  openUsageStatsSettings(): Promise<{ success: boolean }>;
+  startBlockService(): Promise<{ success: boolean }>;
+  stopBlockService(): Promise<{ success: boolean }>;
+  getRemainingQuota(): Promise<{ remainingSeconds: number }>;
+  setRemainingQuota(options: { seconds: number }): Promise<{ success: boolean }>;
+  addEarnedTime(options: { seconds: number }): Promise<{ success: boolean }>;
   launchApp(options: { packageName: string }): Promise<{ success: boolean }>;
   getPendingLockTrigger(): Promise<{ hasTrigger: boolean; lockTrigger?: ProtectedApp }>;
+  getPendingNavigation(): Promise<{ hasNavigation: boolean; destination?: string }>;
   addListener(
     eventName: 'appLockTriggered',
     listenerFunc: (data: ProtectedApp) => void
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: 'navigateTo',
+    listenerFunc: (data: { destination: string }) => void
   ): Promise<PluginListenerHandle>;
 }
 
@@ -176,6 +188,7 @@ export class AndroidAppLockerService {
       camera: cameraGranted,
       overlay: true,
       accessibility: true,
+      usageStats: true,
       batteryOptimization: true,
       notification: true,
       isOemRequiringAutoStart: false,
@@ -302,6 +315,125 @@ export class AndroidAppLockerService {
       }
     }
     return true;
+  }
+
+  /**
+   * Check if Usage Stats access is granted
+   */
+  public async hasUsageStatsPermission(): Promise<boolean> {
+    if (this.isNative) {
+      try {
+        const res = await NativeLocker.hasUsageStatsPermission();
+        return res.granted;
+      } catch (e) {
+        console.error('Failed to check usage stats permission:', e);
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Open Android Usage Access Settings
+   */
+  public async openUsageStatsSettings(): Promise<void> {
+    if (this.isNative) {
+      try {
+        await NativeLocker.openUsageStatsSettings();
+        return;
+      } catch (e) {
+        console.error('Failed to open usage stats settings:', e);
+      }
+    }
+  }
+
+  /**
+   * Start App Blocker Foreground Service
+   */
+  public async startBlockService(): Promise<void> {
+    if (this.isNative) {
+      try {
+        await NativeLocker.startBlockService();
+        return;
+      } catch (e) {
+        console.error('Failed to start block service:', e);
+      }
+    }
+  }
+
+  /**
+   * Stop App Blocker Foreground Service
+   */
+  public async stopBlockService(): Promise<void> {
+    if (this.isNative) {
+      try {
+        await NativeLocker.stopBlockService();
+        return;
+      } catch (e) {
+        console.error('Failed to stop block service:', e);
+      }
+    }
+  }
+
+  /**
+   * Get remaining screen time quota in seconds
+   */
+  public async getRemainingQuota(): Promise<number> {
+    if (this.isNative) {
+      try {
+        const res = await NativeLocker.getRemainingQuota();
+        return res.remainingSeconds;
+      } catch (e) {
+        console.error('Failed to get remaining quota:', e);
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * Add earned seconds from push-ups
+   */
+  public async addEarnedTime(seconds: number): Promise<void> {
+    if (this.isNative) {
+      try {
+        await NativeLocker.addEarnedTime({ seconds });
+        return;
+      } catch (e) {
+        console.error('Failed to add earned time:', e);
+      }
+    }
+  }
+
+  /**
+   * Check for pending navigation triggered by status bar notification
+   */
+  public async getPendingNavigation(): Promise<string | null> {
+    if (this.isNative) {
+      try {
+        const res = await NativeLocker.getPendingNavigation();
+        if (res?.hasNavigation && res.destination) {
+          return res.destination;
+        }
+      } catch (e) {
+        console.error('Failed to get pending navigation:', e);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Register listener for notification navigation events
+   */
+  public async listenForNavigation(callback: (destination: string) => void): Promise<PluginListenerHandle | null> {
+    if (this.isNative) {
+      try {
+        return await NativeLocker.addListener('navigateTo', (data) => {
+          callback(data.destination);
+        });
+      } catch (e) {
+        console.error('Failed to register navigation listener:', e);
+      }
+    }
+    return null;
   }
 
   /**

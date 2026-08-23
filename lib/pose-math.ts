@@ -27,26 +27,41 @@ export const POSE_INDICES = {
 };
 
 /**
- * Calculates the internal angle between three points (pointA - pointB - pointC) in degrees (0 - 180°).
- * pointB is the vertex of the angle.
+ * High-Precision 3D Vector Angle Calculation:
+ * Calculates angle using 3D Dot Product between vectors (first -> middle) and (last -> middle).
+ * Eliminates perspective distortion caused by camera tilt when phone is on the floor or leaned against a wall.
  */
+export function calculateAngle3D(
+  first: Landmark | undefined,
+  middle: Landmark | undefined,
+  last: Landmark | undefined
+): number {
+  if (!first || !middle || !last) return 180;
+
+  const v1x = first.x - middle.x;
+  const v1y = first.y - middle.y;
+  const v1z = first.z !== undefined && middle.z !== undefined ? first.z - middle.z : 0;
+
+  const v2x = last.x - middle.x;
+  const v2y = last.y - middle.y;
+  const v2z = last.z !== undefined && middle.z !== undefined ? last.z - middle.z : 0;
+
+  const dotProduct = v1x * v2x + v1y * v2y + v1z * v2z;
+  const mag1 = Math.sqrt(v1x * v1x + v1y * v1y + v1z * v1z);
+  const mag2 = Math.sqrt(v2x * v2x + v2y * v2y + v2z * v2z);
+
+  if (mag1 === 0 || mag2 === 0) return 180;
+
+  const cosTheta = Math.max(-1.0, Math.min(1.0, dotProduct / (mag1 * mag2)));
+  return Math.round((Math.acos(cosTheta) * 180.0) / Math.PI * 10) / 10;
+}
+
 export function calculateAngle(
   a: Landmark | undefined,
   b: Landmark | undefined,
   c: Landmark | undefined
 ): number {
-  if (!a || !b || !c) return 0;
-
-  // Vector BA and Vector BC
-  const radians =
-    Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-  let angle = Math.abs((radians * 180.0) / Math.PI);
-
-  if (angle > 180.0) {
-    angle = 360.0 - angle;
-  }
-
-  return Math.round(angle * 10) / 10;
+  return calculateAngle3D(a, b, c);
 }
 
 /**

@@ -10,10 +10,10 @@ import org.json.JSONObject
  * Persistent SharedPreferences-backed single source of truth for PushLock AI.
  * Stores protected app configurations, rep requirements, and active screen-time balances.
  */
-class NativeAppProtectionStore private constructor(context: Context) {
+class NativeAppProtectionStore private constructor(private val appContext: Context) {
 
     private val prefs: SharedPreferences =
-        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        appContext.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     companion object {
         private const val PREFS_NAME = "pushlock_native_protection_store"
@@ -25,7 +25,7 @@ class NativeAppProtectionStore private constructor(context: Context) {
 
         fun getInstance(context: Context): NativeAppProtectionStore {
             return instance ?: synchronized(this) {
-                instance ?: NativeAppProtectionStore(context).also { instance = it }
+                instance ?: NativeAppProtectionStore(context.applicationContext).also { instance = it }
             }
         }
     }
@@ -75,10 +75,15 @@ class NativeAppProtectionStore private constructor(context: Context) {
     @Synchronized
     private fun saveAllAppsMap(map: Map<String, JSONObject>) {
         val jsonArray = JSONArray()
-        for ((_, obj) in map) {
+        val blockedSet = mutableSetOf<String>()
+        for ((pkg, obj) in map) {
             jsonArray.put(obj)
+            if (obj.optBoolean("isProtected", false)) {
+                blockedSet.add(pkg)
+            }
         }
         prefs.edit().putString(KEY_PROTECTED_APPS, jsonArray.toString()).apply()
+        com.pushlock.ai.blocker.AppBlockerManager.setBlockedPackages(appContext, blockedSet)
     }
 
     @Synchronized
@@ -198,6 +203,7 @@ class NativeAppProtectionStore private constructor(context: Context) {
 
         map[packageName] = app
         saveAllAppsMap(map)
+        com.pushlock.ai.blocker.AppBlockerManager.addEarnedTime(appContext, totalSeconds)
         return totalSeconds
     }
 

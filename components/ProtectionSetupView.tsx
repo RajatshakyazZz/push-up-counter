@@ -29,6 +29,7 @@ export function ProtectionSetupView({ onCompleteSetup }: ProtectionSetupViewProp
     camera: false,
     overlay: false,
     accessibility: false,
+    usageStats: false,
     batteryOptimization: false,
     notification: false,
     isOemRequiringAutoStart: false,
