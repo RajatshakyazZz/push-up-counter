@@ -135,10 +135,11 @@ export default function PushLockApp() {
   // Periodic active unlock session & service status sync
   useEffect(() => {
     const interval = setInterval(async () => {
-      setActiveSessions(androidAppLocker.getActiveUnlockSessions());
+      const sessions = await androidAppLocker.refreshActiveUnlockSessions();
+      setActiveSessions(sessions);
       const enabled = await androidAppLocker.isProtectionServiceEnabled();
       setIsProtectionEnabled(enabled);
-    }, 2000);
+    }, 1500);
     return () => clearInterval(interval);
   }, []);
 

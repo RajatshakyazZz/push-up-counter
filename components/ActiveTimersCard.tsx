@@ -19,15 +19,6 @@ export function ActiveTimersCard({
   onRelock,
   onExtend,
 }: ActiveTimersCardProps) {
-  const [currentTime, setCurrentTime] = useState<number>(() => Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
   if (!sessions || sessions.length === 0) return null;
 
   return (
@@ -47,13 +38,16 @@ export function ActiveTimersCard({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {sessions.map((session) => {
           const app = protectedApps.find((a) => a.packageName === session.packageName);
-          const totalMs = session.durationMinutes * 60 * 1000;
-          const remainingMs = Math.max(0, session.expiresAt - currentTime);
-          const remainingSeconds = Math.floor(remainingMs / 1000);
+          const totalSeconds = Math.max(1, session.durationMinutes * 60);
+          
+          // Use exact native remaining seconds to guarantee 100% sync with status bar notification
+          const remainingSeconds = typeof session.remainingSeconds === 'number' 
+            ? Math.max(0, session.remainingSeconds)
+            : Math.max(0, Math.floor((session.expiresAt - Date.now()) / 1000));
 
           const mins = Math.floor(remainingSeconds / 60);
           const secs = remainingSeconds % 60;
-          const progressPercent = Math.min(100, Math.max(0, (remainingMs / totalMs) * 100));
+          const progressPercent = Math.min(100, Math.max(0, (remainingSeconds / totalSeconds) * 100));
 
           const formattedTime = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
 

@@ -784,6 +784,34 @@ export class AndroidAppLockerService {
   }
 
   /**
+   * Refresh active unlock sessions from Native Android Store
+   */
+  public async refreshActiveUnlockSessions(): Promise<UnlockSession[]> {
+    if (this.isNative) {
+      try {
+        const res = await NativeLocker.getActiveUnlockSessions();
+        if (res?.sessions) {
+          const sessions: UnlockSession[] = res.sessions.map((s: any) => ({
+            packageName: s.packageName,
+            appName: s.appName || s.name || s.packageName,
+            unlockedAt: s.unlockedAt || Date.now(),
+            expiresAt: s.expiresAt || (Date.now() + (s.remainingSeconds || 0) * 1000),
+            durationMinutes: s.durationMinutes || 15,
+            repsCompleted: s.repsCompleted || 20,
+            remainingSeconds: typeof s.remainingSeconds === 'number' ? s.remainingSeconds : 0,
+            isActive: (s.remainingSeconds || 0) > 0,
+          }));
+          this.saveUnlockSessions(sessions);
+          return sessions;
+        }
+      } catch (e) {
+        console.error('Native getActiveUnlockSessions failed:', e);
+      }
+    }
+    return this.getActiveUnlockSessions();
+  }
+
+  /**
    * Get active unlock sessions
    */
   public getActiveUnlockSessions(): UnlockSession[] {
@@ -793,8 +821,9 @@ export class AndroidAppLockerService {
       if (!stored) return [];
 
       const sessions: UnlockSession[] = JSON.parse(stored);
-      const now = Date.now();
-      const validSessions = sessions.filter((s) => s.expiresAt > now && s.isActive);
+      const validSessions = sessions.filter((s) => 
+        (typeof s.remainingSeconds === 'number' ? s.remainingSeconds > 0 : s.expiresAt > Date.now()) && s.isActive
+      );
 
       if (validSessions.length !== sessions.length) {
         this.saveUnlockSessions(validSessions);
@@ -819,6 +848,9 @@ export class AndroidAppLockerService {
     const session = sessions.find((s) => s.packageName === packageName);
     if (!session) return 0;
 
+    if (typeof session.remainingSeconds === 'number') {
+      return Math.max(0, session.remainingSeconds);
+    }
     const remainingMs = session.expiresAt - Date.now();
     return Math.max(0, Math.floor(remainingMs / 1000));
   }

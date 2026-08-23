@@ -1,8 +1,11 @@
 import { Landmark } from '@/types/fitness';
 import { POSE_INDICES, PoseAnalysis } from '@/lib/pose-math';
 
-// Connections for rendering
+// Connections for rendering (Matching Push time 3D skeleton topology)
 const POSE_CONNECTIONS = [
+  // Head / Neck
+  [POSE_INDICES.NOSE, POSE_INDICES.LEFT_SHOULDER],
+  [POSE_INDICES.NOSE, POSE_INDICES.RIGHT_SHOULDER],
   // Torso
   [POSE_INDICES.LEFT_SHOULDER, POSE_INDICES.RIGHT_SHOULDER],
   [POSE_INDICES.LEFT_SHOULDER, POSE_INDICES.LEFT_HIP],
@@ -29,9 +32,9 @@ interface RenderOptions {
   phase: string;
 }
 
-let currentColorR = 239;
-let currentColorG = 68;
-let currentColorB = 68;
+let currentColorR = 0;
+let currentColorG = 229;
+let currentColorB = 255;
 let lastColorTime = typeof performance !== 'undefined' ? performance.now() : 0;
 
 /**
@@ -59,7 +62,7 @@ export function drawPoseSkeleton(
   };
 
   const isGoodPosition = analysis.isPositionValid && analysis.isBodyStraight;
-  const isDown = options.phase === 'down' || analysis.depthPercentage >= 80 || analysis.elbowAngle <= 85;
+  const isDown = options.phase === 'down' || analysis.depthPercentage >= 75 || analysis.elbowAngle <= 98;
 
   // Colors: Red (#FF3B30) for bad form, Neon Green (#34C759) for full depth, Electric Cyan (#00E5FF) for standard
   const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -84,17 +87,17 @@ export function drawPoseSkeleton(
     targetB = 255; // Electric Cyan #00E5FF
   }
 
-  const colorLerpSpeed = 16.0;
+  const colorLerpSpeed = 20.0;
   currentColorR += (targetR - currentColorR) * Math.min(1, colorLerpSpeed * dt);
   currentColorG += (targetG - currentColorG) * Math.min(1, colorLerpSpeed * dt);
   currentColorB += (targetB - currentColorB) * Math.min(1, colorLerpSpeed * dt);
 
   const baseColor = `rgb(${Math.round(currentColorR)}, ${Math.round(currentColorG)}, ${Math.round(currentColorB)})`;
   const glowShadowColor = baseColor;
-  const haloColor = `rgba(${Math.round(currentColorR)}, ${Math.round(currentColorG)}, ${Math.round(currentColorB)}, 0.4)`;
+  const haloColor = `rgba(${Math.round(currentColorR)}, ${Math.round(currentColorG)}, ${Math.round(currentColorB)}, 0.45)`;
 
   // 1. Draw connections (Bones)
-  ctx.lineWidth = 5.5;
+  ctx.lineWidth = 7.5;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
@@ -103,7 +106,7 @@ export function drawPoseSkeleton(
     const endLm = landmarks[endIdx];
 
     if (!startLm || !endLm) return;
-    if ((startLm.visibility ?? 1) < 0.15 || (endLm.visibility ?? 1) < 0.15) return;
+    if ((startLm.visibility ?? 1) < 0.12 || (endLm.visibility ?? 1) < 0.12) return;
 
     const start = getCoords(startLm);
     const end = getCoords(endLm);
@@ -114,7 +117,7 @@ export function drawPoseSkeleton(
 
     ctx.strokeStyle = baseColor;
     ctx.shadowColor = glowShadowColor;
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = 18;
 
     ctx.stroke();
     ctx.shadowBlur = 0;
@@ -139,24 +142,24 @@ export function drawPoseSkeleton(
 
   keyNodes.forEach((idx) => {
     const lm = landmarks[idx];
-    if (!lm || (lm.visibility ?? 1) < 0.20) return;
+    if (!lm || (lm.visibility ?? 1) < 0.15) return;
 
     const { x, y } = getCoords(lm);
     const isElbow = idx === POSE_INDICES.LEFT_ELBOW || idx === POSE_INDICES.RIGHT_ELBOW;
 
     // Outer glowing halo
     ctx.beginPath();
-    ctx.arc(x, y, isElbow ? 11 : 8.5, 0, 2 * Math.PI);
+    ctx.arc(x, y, isElbow ? 14 : 11, 0, 2 * Math.PI);
     ctx.fillStyle = haloColor;
     ctx.shadowColor = glowShadowColor;
-    ctx.shadowBlur = 16;
+    ctx.shadowBlur = 20;
     ctx.fill();
 
     // Inner bright white joint core
     ctx.beginPath();
-    ctx.arc(x, y, isElbow ? 5.5 : 4, 0, 2 * Math.PI);
+    ctx.arc(x, y, isElbow ? 7 : 5.5, 0, 2 * Math.PI);
     ctx.fillStyle = '#FFFFFF';
-    ctx.shadowBlur = 4;
+    ctx.shadowBlur = 6;
     ctx.fill();
     ctx.shadowBlur = 0;
   });

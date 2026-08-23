@@ -134,6 +134,7 @@ export interface UnlockSession {
   durationMinutes: number;
   repsCompleted: number;
   isActive: boolean;
+  remainingSeconds?: number;
 }
 
 export interface WorkoutSessionLog {

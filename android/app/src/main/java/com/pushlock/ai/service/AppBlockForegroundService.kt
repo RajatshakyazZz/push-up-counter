@@ -79,8 +79,12 @@ class AppBlockForegroundService : Service() {
                     val isCurrentAppBlocked = currentForegroundApp != null &&
                             blockedPackages.contains(currentForegroundApp) &&
                             currentForegroundApp != packageName
-
-                    val remainingSeconds = AppBlockerManager.getRemainingQuota(applicationContext)
+                    val store = NativeAppProtectionStore.getInstance(applicationContext)
+                    val remainingSeconds = if (currentForegroundApp != null) {
+                        store.getRemainingScreenTimeSeconds(currentForegroundApp)
+                    } else {
+                        AppBlockerManager.getRemainingQuota(applicationContext)
+                    }
 
                     if (isCurrentAppBlocked) {
                         val currentAppName = getAppName(currentForegroundApp!!)
@@ -88,16 +92,18 @@ class AppBlockForegroundService : Service() {
                             launchBlockedAppOverlay(currentForegroundApp)
                             updateNotification(0L, isActiveInBlockedApp = true, currentAppName = currentAppName)
                         } else {
-                            val updatedQuota = AppBlockerManager.decrementQuota(applicationContext)
-                            updateNotification(updatedQuota, isActiveInBlockedApp = true, currentAppName = currentAppName)
+                            val updatedRemaining = store.deductScreenTime(currentForegroundApp, 1L)
+                            AppBlockerManager.setRemainingQuota(applicationContext, updatedRemaining)
+                            updateNotification(updatedRemaining, isActiveInBlockedApp = true, currentAppName = currentAppName)
 
-                            if (updatedQuota <= 0) {
+                            if (updatedRemaining <= 0) {
                                 launchBlockedAppOverlay(currentForegroundApp)
                             }
                         }
                     } else {
                         if (tickCounter % 3 == 0 || lastActivePackage != currentForegroundApp) {
-                            updateNotification(remainingSeconds, isActiveInBlockedApp = false, currentAppName = null)
+                            val globalQuota = AppBlockerManager.getRemainingQuota(applicationContext)
+                            updateNotification(globalQuota, isActiveInBlockedApp = false, currentAppName = null)
                         }
                     }
 

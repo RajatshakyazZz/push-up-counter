@@ -20,9 +20,9 @@ import {
 } from '@/lib/audio';
 
 export const DEFAULT_SETTINGS: PushUpSettings = {
-  upAngleThreshold: 150,
-  downAngleThreshold: 102,
-  backAlignmentThreshold: 135,
+  upAngleThreshold: 142,
+  downAngleThreshold: 98,
+  backAlignmentThreshold: 130,
   voiceAnnounce: true,
   soundEffects: true,
   hapticsEnabled: true,
@@ -34,16 +34,16 @@ export const DEFAULT_SETTINGS: PushUpSettings = {
   showAngles: true,
   countdownSeconds: 5,
   debugMode: false,
-  minRepDurationMs: 240,
-  minAngleDelta: 22,
-  requiredConfidence: 0.20,
+  minRepDurationMs: 140,
+  minAngleDelta: 18,
+  requiredConfidence: 0.15,
 };
 
-// High-speed responsive debounce frame requirements (zero missed reps)
-const POSITION_CONFIRM_FRAMES = 3;
+// High-speed responsive debounce frame requirements (zero missed reps on fast push-ups)
+const POSITION_CONFIRM_FRAMES = 1;
 const DOWN_CONFIRM_FRAMES = 1;
 const UP_CONFIRM_FRAMES = 1;
-const REP_COOLDOWN_MS = 120;
+const REP_COOLDOWN_MS = 60;
 
 export function usePushUpTracker(initialSettings?: Partial<PushUpSettings>) {
   const [settings, setSettings] = useState<PushUpSettings>({
