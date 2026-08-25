@@ -39,10 +39,10 @@ export default function LandingPage() {
   const [activeDemoTab, setActiveDemoTab] = useState<'locked' | 'tracker' | 'unlocked'>('locked');
 
   useEffect(() => {
-    // If running natively inside Android Capacitor APK, auto-redirect directly to the tracker app
+    // If running natively inside Android Capacitor APK, auto-redirect directly to the app dashboard
     if (typeof window !== 'undefined' && Capacitor.isNativePlatform()) {
       setIsNativeApp(true);
-      router.replace('/tracker');
+      router.replace('/app');
     }
   }, [router]);
 
@@ -111,7 +111,7 @@ export default function LandingPage() {
           {/* Nav CTA Buttons */}
           <div className="flex items-center gap-2.5 sm:gap-3">
             <Link
-              href="/tracker"
+              href="/app"
               className="px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-200 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 transition-all duration-150 flex items-center gap-1.5 cursor-pointer"
             >
               <Camera className="w-3.5 h-3.5 text-emerald-400" />
@@ -171,7 +171,7 @@ export default function LandingPage() {
                 </a>
 
                 <Link
-                  href="/tracker"
+                  href="/app"
                   className="px-6 py-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white font-bold text-base border border-slate-700/80 transition-all duration-150 flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Play className="w-4 h-4 text-emerald-400 fill-emerald-400" />
@@ -709,8 +709,11 @@ export default function LandingPage() {
             >
               <Github className="w-4 h-4" /> GitHub
             </a>
+            <Link href="/app" className="hover:text-white transition-colors">
+              Dashboard
+            </Link>
             <Link href="/tracker" className="hover:text-white transition-colors">
-              Web App
+              Tracker
             </Link>
             <a href="#permissions" className="hover:text-white transition-colors">
               Privacy & Permissions
